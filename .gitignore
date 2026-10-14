@@ -1,0 +1,10 @@
+/.moto-gps-import-cache/
+/build/
+/backups/
+/.env
+/.env.local
+*.p12
+*.mobileprovision
+*.ipa
+*.xcuserstate
+**/xcuserdata/

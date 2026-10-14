@@ -1,0 +1,16 @@
+# Added by the Ducati V2 integration; upstream files remain unchanged.
+# Keep these upstream-tracked files visible without admitting new build output.
+!/test_A1.bin
+!/test_A2.bin
+!/test_A4.bin
+!/test_A8.bin
+!/test_ARGB8888.bin
+!/test_I1.bin
+!/test_I2.bin
+!/test_I4.bin
+!/test_I8.bin
+!/test_L8.bin
+!/test_RGB565.bin
+!/test_RGB565A8.bin
+!/test_RGB888.bin
+!/test_XRGB8888.bin

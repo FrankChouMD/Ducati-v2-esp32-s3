@@ -1,0 +1,6 @@
+*.md text eol=lf
+*.json text eol=lf
+*.py text eol=lf
+
+# Keep the imported snapshot and its license texts byte-for-byte.
+third_party/moto-gps-waveshare/** -text eol=lf -whitespace

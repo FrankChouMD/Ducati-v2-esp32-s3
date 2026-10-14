@@ -1,0 +1,13 @@
+# Added by the Ducati V2 integration; upstream files remain unchanged.
+# Keep these upstream-tracked files visible without admitting new build output.
+!/cogwheel.A8.bin
+!/cogwheel.ARGB8888.bin
+!/cogwheel.I1.bin
+!/cogwheel.I2.bin
+!/cogwheel.I4.bin
+!/cogwheel.I8.bin
+!/cogwheel.L8.bin
+!/cogwheel.RGB565.bin
+!/cogwheel.RGB565A8.bin
+!/cogwheel.RGB888.bin
+!/cogwheel.XRGB8888.bin

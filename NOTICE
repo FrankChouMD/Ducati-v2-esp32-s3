@@ -1,0 +1,21 @@
+Required Notice: Copyright (c) 2026 Maler X (https://github.com/mx3353672833-debug).
+Required Notice: MOTO GPS - Waveshare Edition by Maler X. Source: https://github.com/mx3353672833-debug/moto-gps-waveshare
+
+This repository imports MOTO GPS - Waveshare Edition into
+third_party/moto-gps-waveshare for a personal, noncommercial Ducati V2 project.
+The original project author is Maler X; the integration is not an official
+Waveshare, Ducati, Apple, Cardo, or AMap product or endorsement.
+
+MOTO GPS original code and artwork retain the PolyForm Noncommercial License
+1.0.0 unless the file or its third-party notices state otherwise. The full
+license is provided in LICENSE.md and in the imported project. Include the
+Required Notice lines and the license text or license URL when redistributing
+any portion of the software, including modified source and firmware/App builds.
+
+Third-party code, fonts, map data, and reference materials retain their own
+copyrights and license terms. These notices do not impose a noncommercial
+restriction on independently licensed materials. See THIRD_PARTY_NOTICES.md
+and the unmodified upstream notices under third_party/moto-gps-waveshare.
+
+Pinned upstream commit: c8bdacca0e01dda85260975aa2027c1ae8a549e5
+Pinned LVGL commit: 85aa60d18b3d5e5588d7b247abf90198f07c8a63

@@ -1,0 +1,3 @@
+# Added by the Ducati V2 integration; upstream files remain unchanged.
+# Keep these upstream-tracked files visible without admitting new build output.
+!/config.h
