@@ -7,8 +7,14 @@
 #define MOTO_UI_ROAD_POLYLINE_CAPACITY 24
 #define MOTO_UI_BUILDING_POINT_CAPACITY 128
 #define MOTO_UI_BUILDING_FOOTPRINT_CAPACITY 16
+/* Ducati V2 integration: each build may select its physical panel size.
+ * Keep 466 as the upstream 1.75C/Web default. */
+#ifndef MOTO_UI_CANVAS_WIDTH
 #define MOTO_UI_CANVAS_WIDTH 466
+#endif
+#ifndef MOTO_UI_CANVAS_HEIGHT
 #define MOTO_UI_CANVAS_HEIGHT 466
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -69,7 +75,7 @@ typedef enum {
 } moto_music_command_t;
 
 typedef struct {
-    /* Native pixel coordinates in the single 466 x 466 shared canvas. */
+    /* Native pixel coordinates in the build-selected shared canvas. */
     int16_t x;
     int16_t y;
 } moto_ui_point_t;

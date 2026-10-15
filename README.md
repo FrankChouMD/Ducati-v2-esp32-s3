@@ -12,18 +12,24 @@
 - 已导入上游源码、iOS App、ESP32 固件、Web 调试工具、后端、测试、文档和资源。
 - 已保留原始署名、许可证、第三方声明、字体与地图数据的许可文件。
 - 已将上游固定的 **LVGL 9.5.0** 子模块展开为普通文件，随本仓库保存。
-- 导入阶段保持上游文件内容不变，逐文件记录来源和校验值。
-- 当前上游固件适配 **ESP32-S3-Touch-AMOLED-1.75C**；**2.16 板子适配尚未完成**。
+- 导入基线 commit 为 `9a56ed0`，逐文件记录原始来源和校验值；后续改动见适配记录。
+- 已新增 **2.16 板子固件入口**：480×480 CO5300、板级触摸、GPIO16 电源键、16MB 分区和 QMI8658 接入。
+- 已接入确认的杜卡迪开机动画：红白盾标、**PANIGALE V2S 逐字渐入**，总时长 2.4 秒。
+- 2.16 固件已通过 ESP-IDF 5.5.5 编译；480×480 桌面测试 10 项通过，尚未接板实测。
 - 当前上游使用高德普通驾车路线服务；摩托车路线、倾角记录与手机回放需要继续开发。
 
-导入校验只确认文件完整性和许可材料保留情况，不代表固件、iPhone 后台连接或实车功能已通过验证。
+杜卡迪开机动画已写入本项目固件；倾角记录和手机回放尚未实现。
+编译与桌面测试不代表屏幕、触摸、iPhone 后台连接或 Cardo 组合已通过硬件验证。
 
 ## 代码入口
 
 | 内容 | 位置 |
 | --- | --- |
 | 上游项目说明 | [third_party/moto-gps-waveshare/README.md](third_party/moto-gps-waveshare/README.md) |
-| ESP32 固件 | [platforms/esp32](third_party/moto-gps-waveshare/platforms/esp32/README.md) |
+| 2.16 板子固件 / 构建与烧录 | [firmware/README.md](firmware/README.md) |
+| 2.16 适配内容与验证记录 | [docs/BOARD_2_16_ADAPTATION.md](docs/BOARD_2_16_ADAPTATION.md) |
+| 开机动画 / 已确认预览 | [docs/BOOT_ANIMATION.md](docs/BOOT_ANIMATION.md) |
+| 上游 1.75C 固件 | [platforms/esp32](third_party/moto-gps-waveshare/platforms/esp32/README.md) |
 | iPhone App | [platforms/ios](third_party/moto-gps-waveshare/platforms/ios/README.md) |
 | 高德路线网关 | [backend](third_party/moto-gps-waveshare/backend/README.md) |
 | 共享导航逻辑和界面 | [shared](third_party/moto-gps-waveshare/shared) |
@@ -34,8 +40,9 @@
 
 ## 开发环境
 
-上游 ESP32 固件使用 ESP-IDF **5.5.5** 和微雪 **1.75C BSP 3.0.0**。
-请先阅读固件目录的说明；后续适配 2.16 时需要修改板级驱动、触摸、显示尺寸和 Flash 分区。
+本项目的 2.16 固件使用 ESP-IDF **5.5.5**、微雪 **2.16 BSP 2.0.1** 和固定的 LVGL **9.5.0**。
+在仓库根目录激活 ESP-IDF 后运行 `idf.py -C firmware build`，详情见固件说明。
+根目录 CMake 提供真实 LVGL 的 480×480 桌面检查；上游 1.75C 入口继续保留默认 466×466。
 iPhone App 的构建与安装见 iOS 目录说明，需要 macOS / Xcode 和自己的签名配置。
 
 这里保存的是普通文件快照。LVGL 已展开，无需在本仓库执行上游教程中的
@@ -44,7 +51,7 @@ iPhone App 的构建与安装见 iOS 目录说明，需要 macOS / Xcode 和自�
 
 ## 自用功能目标
 
-1. 将启动画面替换为杜卡迪主题动画。
+1. 已接入杜卡迪主题启动动画，待接板验证。
 2. 在 2.16 英寸屏幕显示转向信息和简化路线，完善摩托车路线接入。
 3. 保存原始 IMU 与估计倾角，并在 iPhone 中同步、分析和回放。
 4. 车机通过 BLE 传数据，导航语音、音乐和通话继续由 iPhone 与 Cardo 处理。

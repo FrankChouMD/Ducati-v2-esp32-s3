@@ -13,6 +13,11 @@
 #include "motion_heading_sensor.h"
 #include "phone_nav_bridge.h"
 
+// Ducati V2 integration: only the dedicated 2.16 target selects this intro.
+#if defined(DUCATI_BOOT_ANIMATION)
+#include "ducati_boot_animation.h"
+#endif
+
 namespace {
 constexpr char kTag[] = "moto_gps";
 constexpr std::uint64_t kPowerHoldMs = 3'000;
@@ -87,13 +92,13 @@ void power_button_task(void*) {
 
       // AXP2101 should remove the switched rails here. If this particular
       // board remains alive while USB is attached, blank the panel and enter
-      // deep sleep after key release. GPIO3 high wakes it on the next press.
+      // deep sleep after key release. The board-selected SYS_OUT pin wakes it.
       vTaskDelay(pdMS_TO_TICKS(500));
       while (board_port_power_button_pressed()) {
         vTaskDelay(pdMS_TO_TICKS(20));
       }
       ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup_io(
-          1ULL << 3, ESP_EXT1_WAKEUP_ANY_HIGH));
+          1ULL << MOTO_POWER_BUTTON_WAKE_GPIO, ESP_EXT1_WAKEUP_ANY_HIGH));
       esp_deep_sleep_start();
     }
     vTaskDelay(pdMS_TO_TICKS(20));
@@ -141,7 +146,11 @@ extern "C" void app_main(void) {
     return;
   }
 
+#if defined(DUCATI_BOOT_ANIMATION)
+  ducati_boot_animation_show();
+#else
   moto_nav_ui_show_boot_screen();
+#endif
   // Commit the deliberately black first animation frame while the physical
   // panel is still hidden, then reveal it.  This removes the white frame that
   // used to leak from LVGL's default startup screen.
@@ -153,9 +162,12 @@ extern "C" void app_main(void) {
   }
   board_port_unlock();
 
-  // Give the display worker enough time to commit the monochrome power-on
-  // frame before constructing the full production UI.
+  // Finish the selected intro before constructing the navigation UI.
+#if defined(DUCATI_BOOT_ANIMATION)
+  vTaskDelay(pdMS_TO_TICKS(DUCATI_BOOT_ANIMATION_DURATION_MS + LV_DEF_REFR_PERIOD));
+#else
   vTaskDelay(pdMS_TO_TICKS(1'250));
+#endif
 
   if (!board_port_lock(UINT32_MAX)) {
     ESP_LOGE(kTag, "could not reacquire LVGL lock after boot screen");

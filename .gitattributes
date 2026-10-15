@@ -4,3 +4,8 @@
 
 # Keep the imported snapshot and its license texts byte-for-byte.
 third_party/moto-gps-waveshare/** -text eol=lf -whitespace
+
+# The generated asset hashes must survive Windows / Unix checkouts.
+firmware/assets/boot/*.c text eol=lf
+firmware/assets/boot/*.h text eol=lf
+firmware/assets/boot/ducati-red-logo.svg -text

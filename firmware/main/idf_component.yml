@@ -1,0 +1,14 @@
+dependencies:
+  idf: ">=5.5,<6.0"
+  waveshare/esp32_s3_touch_amoled_2_16:
+    version: "2.0.1"
+  waveshare/qmi8658:
+    version: "2.0.0"
+  espressif/esp_lvgl_adapter:
+    version: "0.6.4"
+  espressif/esp_lcd_co5300:
+    version: "2.1.0"
+  lvgl/lvgl:
+    version: "9.5.0"
+    public: true
+    override_path: "../../third_party/moto-gps-waveshare/third_party/lvgl"

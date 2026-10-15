@@ -7,6 +7,12 @@
 #include "lvgl.h"
 #include "moto_nav_ui.h"
 
+/* Ducati V2 integration: 1.75C uses GPIO3; 2.16 uses GPIO16.
+ * The board port and the deep-sleep wake source must select the same pin. */
+#ifndef MOTO_POWER_BUTTON_WAKE_GPIO
+#define MOTO_POWER_BUTTON_WAKE_GPIO 3
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -52,7 +58,7 @@ bool board_port_lock(uint32_t timeout_ms);
 /** Release a lock previously acquired with board_port_lock. */
 void board_port_unlock(void);
 
-/** GPIO3/SYS_OUT is high while the case PWR key is physically held. */
+/** Board-selected SYS_OUT is high while the case PWR key is held. */
 bool board_port_power_button_pressed(void);
 
 /**

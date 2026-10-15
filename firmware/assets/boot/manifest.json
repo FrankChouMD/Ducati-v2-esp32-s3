@@ -1,0 +1,24 @@
+{
+  "model_text": "PANIGALE V2S",
+  "canvas": [
+    480,
+    480
+  ],
+  "shield_width": 186,
+  "duration_ms": 2400,
+  "letter_start_ms": 850,
+  "letter_interval_ms": 65,
+  "letter_fade_ms": 210,
+  "source_svg_sha256": "fd3154c70ddcc3bc7d9c871848f4b3d755bac26af8e932cf1f070485ec32066f",
+  "font_file_name": "arialbi.ttf",
+  "font_sha256": "267a411525980d648f10a7222a6ff1ebe4d4feeefbf9b3100cae2b5cfab5594a",
+  "font_size_px": 27,
+  "letter_spacing_px": 2.5,
+  "pixel_format": "ARGB8888, little-endian BGRA bytes",
+  "pixel_asset_bytes": 189364,
+  "outline_point_count": 478,
+  "generated_sha256": {
+    "ducati_boot_assets.c": "260299c67f829fd49a41ecbe94a786c1ac9c302ffcfe7912299df722f9960556",
+    "ducati_boot_assets.h": "443eff7632ff792911957eea586ffa3f56e0255f03269d37ded820bc86c15149"
+  }
+}

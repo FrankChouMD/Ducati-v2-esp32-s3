@@ -9,7 +9,11 @@
 
 #include "lvgl.h"
 
+// Ducati V2 integration: the generated font is compiled as C. Keep the
+// declaration's linkage explicit for MSVC as well as the ESP32 toolchain.
+extern "C" {
 LV_FONT_DECLARE(moto_font_nav_16);
+}
 
 namespace {
 

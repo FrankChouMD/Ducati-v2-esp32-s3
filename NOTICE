@@ -19,3 +19,9 @@ and the unmodified upstream notices under third_party/moto-gps-waveshare.
 
 Pinned upstream commit: c8bdacca0e01dda85260975aa2027c1ae8a549e5
 Pinned LVGL commit: 85aa60d18b3d5e5588d7b247abf90198f07c8a63
+
+Ducati shield artwork: original by Ducati Motor Holding; SVG vectorization by
+ReneeWrites. Source: https://commons.wikimedia.org/wiki/File:Ducati_red_logo.svg
+See firmware/assets/boot/README.md for provenance and generated asset records.
+Brand artwork retains its original rights status and is not relicensed by the
+root PolyForm license.
