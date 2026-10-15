@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -59,6 +60,12 @@ void flush_cb(lv_display_t* display, const lv_area_t* area,
 
 void init_display(int buffer_rows, int extra_pool_bytes) {
   lv_init();
+  lv_log_register_print_cb([](lv_log_level_t level, const char* message) {
+    std::cerr << message << std::flush;
+    // LVGL's default assertion handler loops forever. Make host failures
+    // visible to CTest instead of leaving a headless process hung on error.
+    if(level == LV_LOG_LEVEL_ERROR) std::exit(EXIT_FAILURE);
+  });
   static std::vector<std::uint32_t> extra_pool;
   if(extra_pool_bytes > 0) {
     extra_pool.resize((static_cast<std::size_t>(extra_pool_bytes) + 3U) / 4U);
@@ -369,7 +376,7 @@ void test_motion_frames_interpolate_then_settle_without_residue() {
   const auto direct = capture();
   // Compare the map viewport. The page dots below it expire independently at
   // five seconds, which may fall between the two captured frames.
-  constexpr int map_height = (232 * kWidth + 180) / 360;
+  constexpr int map_height = MOTO_UI_NAV_MAP_HEIGHT;
   constexpr std::size_t map_bytes = kWidth * map_height * (LV_COLOR_DEPTH / 8);
   CHECK(std::equal(direct.bytes.begin(), direct.bytes.begin() + map_bytes,
                    settled_bytes.begin()));
@@ -413,6 +420,135 @@ void test_diagonal_map_pixels_are_independent_of_partial_buffer_height() {
   CHECK(draw_with_buffer(short_buffer) == tall_frame);
 }
 
+lv_obj_t* visible_label(lv_obj_t* object, const char* text) {
+  if (lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) return nullptr;
+  if (lv_obj_check_type(object, &lv_label_class) &&
+      std::strcmp(lv_label_get_text(object), text) == 0) return object;
+  for (std::uint32_t i = 0; i < lv_obj_get_child_count(object); ++i) {
+    if (lv_obj_t* match = visible_label(lv_obj_get_child(object, i), text)) return match;
+  }
+  return nullptr;
+}
+
+void test_lean_readouts_clear_invalid_data_and_refresh_on_motion() {
+#if MOTO_UI_SQUARE_SCREEN
+  moto_nav_ui_create();
+  moto_nav_ui_set_demo_active(1);
+  moto_nav_ui_set_reduce_motion(1);
+  int calibration_requests = 0;
+  moto_nav_ui_set_lean_calibration_callback([](void* context) {
+    ++*static_cast<int*>(context);
+  }, &calibration_requests);
+  moto_ui_state_t state = base_state();
+  fill_route(state, 6);
+  for (moto_ui_page_t page : {MOTO_UI_PAGE_NAVIGATION, MOTO_UI_PAGE_SPEED}) {
+    state.page = page;
+    state.lean_valid = 1;
+    state.lean_deg = -23.0F;
+    moto_nav_ui_set_state(&state);
+    const Frame left = capture();
+    CHECK(visible_label(lv_screen_active(), "L 23°") != nullptr);
+    state.lean_deg = 18.0F;
+    moto_nav_ui_set_motion_state(&state);
+    const Frame right = capture();
+    CHECK(visible_label(lv_screen_active(), "R 18°") != nullptr);
+    CHECK(left.hash != right.hash);
+    state.lean_deg = 0.0F;
+    moto_nav_ui_set_motion_state(&state);
+    capture();
+    CHECK(visible_label(lv_screen_active(), "0°") != nullptr);
+    state.lean_deg = std::numeric_limits<float>::quiet_NaN();
+    moto_nav_ui_set_motion_state(&state);
+    capture();
+    lv_obj_t* unavailable = visible_label(lv_screen_active(), "--°");
+    CHECK(unavailable != nullptr);
+    if (unavailable) {
+      lv_obj_t* target = lv_obj_get_parent(unavailable);
+      lv_obj_send_event(target, LV_EVENT_LONG_PRESSED, nullptr);
+    }
+    state.lean_valid = 0;
+    state.lean_deg = 18.0F;
+    moto_nav_ui_set_motion_state(&state);
+    capture();
+    CHECK(visible_label(lv_screen_active(), "--°") != nullptr);
+    CHECK(visible_label(lv_screen_active(), "R 18°") == nullptr);
+  }
+  CHECK(calibration_requests == 2);
+  moto_nav_ui_set_lean_calibration_callback(nullptr, nullptr);
+#endif
+}
+
+void test_square_navigation_hud_and_lean_repaint() {
+#if MOTO_UI_SQUARE_SCREEN
+  moto_nav_ui_create();
+  moto_nav_ui_set_demo_active(1);
+  moto_nav_ui_set_reduce_motion(1);
+  auto state = base_state();
+  state.speed_kph = 58;
+  state.distance_to_maneuver_m = 180;
+  state.speed_limit_kph = 50;
+  state.lean_valid = 1;
+  state.route_point_count = 2;
+  state.route_points[0] = {MOTO_UI_NAV_VEHICLE_X, MOTO_UI_NAV_VEHICLE_Y};
+  state.route_points[1] = {MOTO_UI_NAV_VEHICLE_X, 0};
+  moto_nav_ui_set_state(&state);
+  capture();
+
+  const auto check_corner = [](const char* text, bool right, bool bottom) {
+    auto* label = visible_label(lv_screen_active(), text);
+    CHECK(label != nullptr);
+    if(!label) return;
+    lv_area_t area;
+    lv_obj_get_coords(label, &area);
+    CHECK(right ? area.x1 > kWidth / 2 : area.x2 < kWidth / 2);
+    CHECK(bottom ? area.y1 > kHeight / 2 : area.y2 < kHeight / 2);
+  };
+  check_corner("180", false, false);
+  check_corner("50", true, false);
+  check_corner("58", false, true);
+  check_corner("0°", true, true);
+
+  // Each lean update dirties the bike AND the right-corner reference strip.
+  // Repainting the full screen must produce identical pixels, with no trails.
+  for(float angle : {-85.0F, -30.0F, 0.0F, 30.0F, 85.0F}) {
+    state.lean_deg = angle;
+    moto_nav_ui_set_motion_state(&state);
+    const Frame partial = capture();
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(lv_display_get_default());
+    CHECK(shadow_frame == partial.bytes);
+  }
+  state.lean_valid = 0;
+  moto_nav_ui_set_motion_state(&state);
+  const Frame unavailable = capture();
+  CHECK(visible_label(lv_screen_active(), "--°") != nullptr);
+  lv_obj_invalidate(lv_screen_active());
+  lv_refr_now(lv_display_get_default());
+  CHECK(shadow_frame == unavailable.bytes);
+
+  state.speed_kph = 130;
+  moto_nav_ui_set_motion_state(&state);
+  capture();
+  CHECK(visible_label(lv_screen_active(), "130") != nullptr);
+  CHECK(visible_label(lv_screen_active(), "58") == nullptr);
+  state.speed_limit_kph = 0;
+  moto_nav_ui_set_state(&state);
+  capture();
+  CHECK(visible_label(lv_screen_active(), "50") == nullptr);
+  state.distance_to_maneuver_m = 12300;
+  moto_nav_ui_set_state(&state);
+  capture();
+  auto* kilometers = visible_label(lv_screen_active(), "km");
+  CHECK(kilometers != nullptr);
+  if(kilometers) {
+    lv_area_t unit_bounds, instruction_bounds;
+    lv_obj_get_coords(kilometers, &unit_bounds);
+    lv_obj_get_coords(lv_obj_get_parent(kilometers), &instruction_bounds);
+    CHECK(unit_bounds.x2 <= instruction_bounds.x2);
+  }
+#endif
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -432,14 +568,20 @@ int main(int argc, char **argv) {
       [](std::uint8_t byte) { return byte == 0x00; });
   CHECK(all_black);
 
-  test_frames_are_deterministic();
-  test_clearing_geometry_leaves_no_residue();
-  test_music_page_state_and_fallback();
-  test_phone_lifecycle_renders_deterministically();
-  test_demo_mode_visual_contract();
-  test_capacity_payloads_render_stably();
-  test_motion_frames_interpolate_then_settle_without_residue();
-  test_diagonal_map_pixels_are_independent_of_partial_buffer_height();
+  const auto run = [](const char* name, void (*check)()) {
+    std::cout << "Rendering " << name << '\n' << std::flush;
+    check();
+  };
+  run("deterministic frames", test_frames_are_deterministic);
+  run("geometry clearing", test_clearing_geometry_leaves_no_residue);
+  run("music", test_music_page_state_and_fallback);
+  run("phone lifecycle", test_phone_lifecycle_renders_deterministically);
+  run("demo mode", test_demo_mode_visual_contract);
+  run("capacity payloads", test_capacity_payloads_render_stably);
+  run("motion interpolation", test_motion_frames_interpolate_then_settle_without_residue);
+  run("partial buffers", test_diagonal_map_pixels_are_independent_of_partial_buffer_height);
+  run("lean calibration", test_lean_readouts_clear_invalid_data_and_refresh_on_motion);
+  run("square dashboard", test_square_navigation_hud_and_lean_repaint);
 
   // Terminal screens run last: they tear the full UI down.
   moto_nav_ui_show_boot_screen();

@@ -15,7 +15,11 @@
 - 导入基线 commit 为 `9a56ed0`，逐文件记录原始来源和校验值；后续改动见适配记录。
 - 已新增 **2.16 板子固件入口**：480×480 CO5300、板级触摸、GPIO16 电源键、16MB 分区和 QMI8658 接入。
 - 已接入确认的杜卡迪开机动画：红白盾标、**PANIGALE V2S 逐字渐入**，总时长 2.4 秒。
-- 2.16 固件已通过 ESP-IDF 5.5.5 编译；480×480 桌面测试 10 项通过，尚未接板实测。
+- 已在导航页和速度页显示当前左右倾角与同步倾斜的 E 版车尾图，接入 QMI8658 原型估算、手机速度补偿与静止零点校准。
+- 已按杜卡迪仪表参考统一黑 / 白 / 红配色，使用窄体标签和大号斜体读数，见 [仪表样式](docs/INSTRUMENT_STYLE.md)。
+- 已按确认效果图完成导航页四角布局：左上方向、右上限速、左下速度、右下倾角，摩托车后轮接地点居中并与地图投影原点对齐。
+- 2.16 固件已通过 ESP-IDF 5.5.5 编译；Windows / 480×480 桌面测试 12 项通过，尚未接板实测。
+- Windows 可双击 [run-local.cmd](run-local.cmd)，运行同一份 LVGL 代码的开机动画和导航演示。
 - 当前上游使用高德普通驾车路线服务；摩托车路线、倾角记录与手机回放需要继续开发。
 
 杜卡迪开机动画已写入本项目固件；倾角记录和手机回放尚未实现。
@@ -29,6 +33,8 @@
 | 2.16 板子固件 / 构建与烧录 | [firmware/README.md](firmware/README.md) |
 | 2.16 适配内容与验证记录 | [docs/BOARD_2_16_ADAPTATION.md](docs/BOARD_2_16_ADAPTATION.md) |
 | 开机动画 / 已确认预览 | [docs/BOOT_ANIMATION.md](docs/BOOT_ANIMATION.md) |
+| Windows 本机模拟器 / 测试说明 | [docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md) |
+| 倾角显示 / 安装与校准 | [docs/LEAN_ANGLE.md](docs/LEAN_ANGLE.md) |
 | 上游 1.75C 固件 | [platforms/esp32](third_party/moto-gps-waveshare/platforms/esp32/README.md) |
 | iPhone App | [platforms/ios](third_party/moto-gps-waveshare/platforms/ios/README.md) |
 | 高德路线网关 | [backend](third_party/moto-gps-waveshare/backend/README.md) |

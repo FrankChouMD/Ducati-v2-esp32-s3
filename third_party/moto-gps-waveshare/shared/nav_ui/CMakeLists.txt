@@ -10,10 +10,17 @@ endif()
 
 add_library(moto_nav_ui STATIC
     assets/moto_font_nav_16.c
+    assets/ducati_rear_e.c
+    assets/fonts/ducati_label_18.c
+    assets/fonts/ducati_label_22.c
+    assets/fonts/ducati_readout_32.c
+    assets/fonts/ducati_readout_56.c
+    assets/fonts/ducati_readout_88.c
     src/moto_nav_ui.cpp
 )
 
 target_include_directories(moto_nav_ui PUBLIC include)
+target_include_directories(moto_nav_ui PRIVATE assets)
 target_link_libraries(moto_nav_ui PUBLIC lvgl)
 target_compile_features(moto_nav_ui PUBLIC cxx_std_17)
 target_compile_options(moto_nav_ui PRIVATE

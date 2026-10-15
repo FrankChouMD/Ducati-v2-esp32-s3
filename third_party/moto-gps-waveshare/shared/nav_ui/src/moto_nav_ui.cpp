@@ -8,6 +8,8 @@
 #include <type_traits>
 
 #include "lvgl.h"
+#include "ducati_rear_e.h"
+#include "fonts/ducati_instrument_fonts.h"
 
 // Ducati V2 integration: the generated font is compiled as C. Keep the
 // declaration's linkage explicit for MSVC as well as the ESP32 toolchain.
@@ -17,10 +19,11 @@ LV_FONT_DECLARE(moto_font_nav_16);
 
 namespace {
 
-constexpr lv_color_t kBlack = LV_COLOR_MAKE(0x05, 0x06, 0x07);
-constexpr lv_color_t kWhite = LV_COLOR_MAKE(0xF3, 0xF4, 0xEF);
-constexpr lv_color_t kIce = LV_COLOR_MAKE(0xB8, 0xED, 0xF5);
-constexpr lv_color_t kGraphite = LV_COLOR_MAKE(0x30, 0x35, 0x39);
+// Ducati-inspired instruments: black, neutral white and racing-red accents.
+// Status colours retain their meaning; green is not a simulated gear signal.
+constexpr lv_color_t kBlack = LV_COLOR_MAKE(0x00, 0x00, 0x00);
+constexpr lv_color_t kWhite = LV_COLOR_MAKE(0xFF, 0xFF, 0xFF);
+constexpr lv_color_t kGraphite = LV_COLOR_MAKE(0x30, 0x32, 0x34);
 // Real surrounding roads need to remain legible on the AMOLED's true-black
 // background.  LV_OPA_70 is 70/255 (not 70 percent), which made the previous
 // road layer effectively disappear on the physical display.
@@ -29,14 +32,14 @@ constexpr lv_color_t kRoadMajor = LV_COLOR_MAKE(0x62, 0x69, 0x6D);
 constexpr lv_color_t kRoadMinor = LV_COLOR_MAKE(0x2B, 0x30, 0x33);
 constexpr lv_color_t kBuildingGray = LV_COLOR_MAKE(0x24, 0x29, 0x2C);
 constexpr lv_color_t kBuildingLandmark = LV_COLOR_MAKE(0x38, 0x40, 0x44);
-constexpr lv_color_t kQuiet = LV_COLOR_MAKE(0x78, 0x7E, 0x7F);
-constexpr lv_color_t kSoft = LV_COLOR_MAKE(0xAE, 0xB2, 0xB0);
-constexpr lv_color_t kAmber = LV_COLOR_MAKE(0xE6, 0xC8, 0x4F);
-constexpr lv_color_t kRed = LV_COLOR_MAKE(0xFF, 0x4B, 0x43);
-constexpr lv_color_t kGreen = LV_COLOR_MAKE(0x69, 0xD4, 0x94);
+constexpr lv_color_t kQuiet = LV_COLOR_MAKE(0x9B, 0x9B, 0x9B);
+constexpr lv_color_t kSoft = LV_COLOR_MAKE(0xCF, 0xCF, 0xCF);
+constexpr lv_color_t kAmber = LV_COLOR_MAKE(0xFF, 0xC4, 0x00);
+constexpr lv_color_t kRed = LV_COLOR_MAKE(0xE8, 0x00, 0x16);
+constexpr lv_color_t kGreen = LV_COLOR_MAKE(0xA6, 0xD8, 0x00);
 constexpr double kPi = 3.14159265358979323846;
 constexpr int kCompassTickCount = 24;
-constexpr int kSpeedTickCount = 18;
+constexpr int kSpeedTickCount = 17;  // 0..160 km/h, in steps of 10.
 constexpr int kDesignWidth = 360;
 constexpr std::uint32_t kPageDotsVisibleMs = 5'000;
 // Keep LVGL, the UI interpolation timer and IMU presentation on the same
@@ -72,6 +75,14 @@ constexpr double px(double value) {
 struct MapPolyline {
     const lv_point_precise_t *points = nullptr;
     std::uint16_t count = 0;
+};
+
+struct LeanGraphic {
+    lv_obj_t *object = nullptr;
+    lv_obj_t *reference = nullptr;
+    float angle_deg = 0.0F;
+    bool valid = false;
+    bool navigation_marker = false;
 };
 
 struct Ui {
@@ -132,6 +143,11 @@ struct Ui {
     lv_obj_t *nav_limit = nullptr;
     lv_obj_t *nav_limit_value = nullptr;
     lv_obj_t *nav_progress = nullptr;
+    lv_obj_t *nav_speed_gauge = nullptr;
+    lv_obj_t *nav_speed_value = nullptr;
+    std::uint16_t nav_speed_kph = 0;
+    lv_obj_t *nav_lean_value = nullptr;
+    LeanGraphic nav_lean_graphic;
 
     // A full-screen empty-state surface replaces the old tiny
     // WAITING FOR PHONE / WAITING FOR ROUTE caption. It is kept inside the
@@ -154,6 +170,8 @@ struct Ui {
 
     lv_obj_t *speed_arc = nullptr;
     lv_obj_t *speed_value = nullptr;
+    lv_obj_t *speed_lean_value = nullptr;
+    LeanGraphic speed_lean_graphic;
     lv_obj_t *speed_ticks[kSpeedTickCount]{};
     lv_point_precise_t speed_tick_points[kSpeedTickCount][2]{};
 
@@ -181,6 +199,8 @@ struct Ui {
     void *page_callback_context = nullptr;
     moto_demo_change_callback_t demo_callback = nullptr;
     void *demo_callback_context = nullptr;
+    moto_lean_calibration_callback_t lean_calibration_callback = nullptr;
+    void *lean_calibration_context = nullptr;
     bool music_page_enabled = true;
     bool demo_active = false;
     bool reduce_motion = false;
@@ -237,7 +257,7 @@ void copy_text(char *destination, std::size_t capacity, const char *source,
 
 lv_color_t traffic_color(moto_traffic_t traffic) {
     switch(traffic) {
-        case MOTO_TRAFFIC_CLEAR: return kIce;
+        case MOTO_TRAFFIC_CLEAR: return kWhite;
         case MOTO_TRAFFIC_SLOW: return kAmber;
         case MOTO_TRAFFIC_CONGESTED:
         case MOTO_TRAFFIC_SEVERE: return kRed;
@@ -283,8 +303,10 @@ void update_page_dots() {
         const bool active = i == static_cast<int>(ui.page);
         lv_obj_set_size(ui.page_dots[i], px(active ? 16 : 5), px(5));
         lv_obj_set_style_radius(ui.page_dots[i], px(3), 0);
-        lv_obj_set_style_bg_color(ui.page_dots[i], active ? kWhite : kGraphite, 0);
+        lv_obj_set_style_bg_color(ui.page_dots[i], active ? kRed : kGraphite, 0);
         lv_obj_set_x(ui.page_dots[i], px(145 + i * 22 - (active ? 5 : 0)));
+        lv_obj_set_y(ui.page_dots[i], px(MOTO_UI_SQUARE_SCREEN ?
+                          (ui.page == MOTO_UI_PAGE_NAVIGATION ? 355 : 348) : 337));
         const bool available = i != MOTO_UI_PAGE_MUSIC || ui.music_page_enabled;
         if(ui.page_dots_visible && available) {
             lv_obj_remove_flag(ui.page_dots[i], LV_OBJ_FLAG_HIDDEN);
@@ -813,14 +835,14 @@ lv_point_precise_t arrow_base(const lv_point_precise_t& previous,
 
 void draw_arrowhead(lv_layer_t *layer, const lv_area_t& area,
                     const lv_point_precise_t& previous,
-                    const lv_point_precise_t& tip) {
+                    const lv_point_precise_t& tip, double icon_scale = 1.0) {
     const double dx = static_cast<double>(tip.x - previous.x);
     const double dy = static_cast<double>(tip.y - previous.y);
     const double length = std::max(1.0, std::hypot(dx, dy));
     const double ux = dx / length;
     const double uy = dy / length;
-    const auto base = arrow_base(previous, tip);
-    const double wing = px(18.0);
+    const auto base = arrow_base(previous, tip, px(24.0) * icon_scale);
+    const double wing = px(18.0) * icon_scale;
 
     lv_draw_triangle_dsc_t triangle;
     lv_draw_triangle_dsc_init(&triangle);
@@ -847,89 +869,95 @@ void draw_maneuver_icon(lv_event_t *event) {
     lv_obj_get_coords(object, &area);
     lv_layer_t *layer = lv_event_get_layer(event);
 
+    const double icon_scale = std::min(
+        static_cast<double>(lv_area_get_width(&area)) / px(116),
+        static_cast<double>(lv_area_get_height(&area)) / px(108));
+    const auto icon_px = [icon_scale](double value) {
+        return static_cast<int>(std::lround(px(value) * icon_scale));
+    };
     lv_point_precise_t points[8]{};
     int count = 0;
     switch(ui.nav_maneuver_type) {
         case MOTO_MANEUVER_RIGHT:
-            points[0] = {px(34), px(102)};
-            points[1] = {px(34), px(63)};
-            points[2] = {px(55), px(42)};
-            points[3] = {px(105), px(42)};
+            points[0] = {icon_px(34), icon_px(102)};
+            points[1] = {icon_px(34), icon_px(63)};
+            points[2] = {icon_px(55), icon_px(42)};
+            points[3] = {icon_px(105), icon_px(42)};
             count = 4;
             break;
         case MOTO_MANEUVER_LEFT:
-            points[0] = {px(82), px(102)};
-            points[1] = {px(82), px(63)};
-            points[2] = {px(61), px(42)};
-            points[3] = {px(11), px(42)};
+            points[0] = {icon_px(82), icon_px(102)};
+            points[1] = {icon_px(82), icon_px(63)};
+            points[2] = {icon_px(61), icon_px(42)};
+            points[3] = {icon_px(11), icon_px(42)};
             count = 4;
             break;
         case MOTO_MANEUVER_SLIGHT_RIGHT:
-            points[0] = {px(36), px(102)};
-            points[1] = {px(36), px(72)};
-            points[2] = {px(96), px(12)};
+            points[0] = {icon_px(36), icon_px(102)};
+            points[1] = {icon_px(36), icon_px(72)};
+            points[2] = {icon_px(96), icon_px(12)};
             count = 3;
             break;
         case MOTO_MANEUVER_SLIGHT_LEFT:
-            points[0] = {px(80), px(102)};
-            points[1] = {px(80), px(72)};
-            points[2] = {px(20), px(12)};
+            points[0] = {icon_px(80), icon_px(102)};
+            points[1] = {icon_px(80), icon_px(72)};
+            points[2] = {icon_px(20), icon_px(12)};
             count = 3;
             break;
         case MOTO_MANEUVER_UTURN:
-            points[0] = {px(88), px(102)};
-            points[1] = {px(88), px(50)};
-            points[2] = {px(82), px(33)};
-            points[3] = {px(69), px(23)};
-            points[4] = {px(51), px(20)};
-            points[5] = {px(34), px(27)};
-            points[6] = {px(25), px(43)};
-            points[7] = {px(25), px(84)};
+            points[0] = {icon_px(88), icon_px(102)};
+            points[1] = {icon_px(88), icon_px(50)};
+            points[2] = {icon_px(82), icon_px(33)};
+            points[3] = {icon_px(69), icon_px(23)};
+            points[4] = {icon_px(51), icon_px(20)};
+            points[5] = {icon_px(34), icon_px(27)};
+            points[6] = {icon_px(25), icon_px(43)};
+            points[7] = {icon_px(25), icon_px(84)};
             count = 8;
             break;
         case MOTO_MANEUVER_ROUNDABOUT: {
             lv_draw_line_dsc_t stem;
             lv_draw_line_dsc_init(&stem);
             stem.color = kWhite;
-            stem.width = px(11);
+            stem.width = icon_px(11);
             stem.round_start = 1;
             stem.round_end = 1;
-            stem.p1 = {static_cast<lv_value_precise_t>(area.x1 + px(58)),
-                       static_cast<lv_value_precise_t>(area.y1 + px(101))};
-            stem.p2 = {static_cast<lv_value_precise_t>(area.x1 + px(58)),
-                       static_cast<lv_value_precise_t>(area.y1 + px(79))};
+            stem.p1 = {static_cast<lv_value_precise_t>(area.x1 + icon_px(58)),
+                       static_cast<lv_value_precise_t>(area.y1 + icon_px(101))};
+            stem.p2 = {static_cast<lv_value_precise_t>(area.x1 + icon_px(58)),
+                       static_cast<lv_value_precise_t>(area.y1 + icon_px(79))};
             lv_draw_line(layer, &stem);
 
             lv_draw_arc_dsc_t circle;
             lv_draw_arc_dsc_init(&circle);
             circle.color = kWhite;
-            circle.width = px(11);
+            circle.width = icon_px(11);
             circle.rounded = 1;
             circle.center = {
-                static_cast<int32_t>(area.x1 + px(58)),
-                static_cast<int32_t>(area.y1 + px(53)),
+                static_cast<int32_t>(area.x1 + icon_px(58)),
+                static_cast<int32_t>(area.y1 + icon_px(53)),
             };
-            circle.radius = px(27);
+            circle.radius = icon_px(27);
             circle.start_angle = 86;
             circle.end_angle = 326;
             lv_draw_arc(layer, &circle);
 
-            const lv_point_precise_t previous = {px(69), px(24)};
-            const lv_point_precise_t tip = {px(86), px(36)};
-            draw_arrowhead(layer, area, previous, tip);
+            const lv_point_precise_t previous = {icon_px(69), icon_px(24)};
+            const lv_point_precise_t tip = {icon_px(86), icon_px(36)};
+            draw_arrowhead(layer, area, previous, tip, icon_scale);
             return;
         }
         case MOTO_MANEUVER_ARRIVE: {
             lv_draw_line_dsc_t pole;
             lv_draw_line_dsc_init(&pole);
             pole.color = kWhite;
-            pole.width = px(11);
+            pole.width = icon_px(11);
             pole.round_start = 1;
             pole.round_end = 1;
-            pole.p1 = {static_cast<lv_value_precise_t>(area.x1 + px(42)),
-                       static_cast<lv_value_precise_t>(area.y1 + px(101))};
-            pole.p2 = {static_cast<lv_value_precise_t>(area.x1 + px(42)),
-                       static_cast<lv_value_precise_t>(area.y1 + px(17))};
+            pole.p1 = {static_cast<lv_value_precise_t>(area.x1 + icon_px(42)),
+                       static_cast<lv_value_precise_t>(area.y1 + icon_px(101))};
+            pole.p2 = {static_cast<lv_value_precise_t>(area.x1 + icon_px(42)),
+                       static_cast<lv_value_precise_t>(area.y1 + icon_px(17))};
             lv_draw_line(layer, &pole);
 
             lv_draw_triangle_dsc_t flag;
@@ -937,31 +965,31 @@ void draw_maneuver_icon(lv_event_t *event) {
             flag.color = kWhite;
             flag.opa = LV_OPA_COVER;
             flag.p[0] = {
-                static_cast<lv_value_precise_t>(area.x1 + px(46)),
-                static_cast<lv_value_precise_t>(area.y1 + px(20)),
+                static_cast<lv_value_precise_t>(area.x1 + icon_px(46)),
+                static_cast<lv_value_precise_t>(area.y1 + icon_px(20)),
             };
             flag.p[1] = {
-                static_cast<lv_value_precise_t>(area.x1 + px(102)),
-                static_cast<lv_value_precise_t>(area.y1 + px(39)),
+                static_cast<lv_value_precise_t>(area.x1 + icon_px(102)),
+                static_cast<lv_value_precise_t>(area.y1 + icon_px(39)),
             };
             flag.p[2] = {
-                static_cast<lv_value_precise_t>(area.x1 + px(46)),
-                static_cast<lv_value_precise_t>(area.y1 + px(58)),
+                static_cast<lv_value_precise_t>(area.x1 + icon_px(46)),
+                static_cast<lv_value_precise_t>(area.y1 + icon_px(58)),
             };
             lv_draw_triangle(layer, &flag);
             return;
         }
         case MOTO_MANEUVER_STRAIGHT:
         default:
-            points[0] = {px(58), px(103)};
-            points[1] = {px(58), px(10)};
+            points[0] = {icon_px(58), icon_px(103)};
+            points[1] = {icon_px(58), icon_px(10)};
             count = 2;
             break;
     }
 
     lv_point_precise_t absolute[8]{};
     const lv_point_precise_t base = arrow_base(points[count - 2],
-                                                points[count - 1]);
+                                                points[count - 1], icon_px(24));
     for(int i = 0; i < count; ++i) {
         const lv_point_precise_t point = i == count - 1 ? base : points[i];
         absolute[i] = {
@@ -972,13 +1000,13 @@ void draw_maneuver_icon(lv_event_t *event) {
     lv_draw_line_dsc_t line;
     lv_draw_line_dsc_init(&line);
     line.color = kWhite;
-    line.width = px(12);
+    line.width = icon_px(12);
     line.round_start = 1;
     line.round_end = 1;
     line.points = absolute;
     line.point_cnt = count;
     lv_draw_line(layer, &line);
-    draw_arrowhead(layer, area, points[count - 2], points[count - 1]);
+    draw_arrowhead(layer, area, points[count - 2], points[count - 1], icon_scale);
 }
 
 void update_maneuver(moto_maneuver_t maneuver) {
@@ -1376,7 +1404,289 @@ void update_nav_status(const moto_ui_state_t *state) {
     lv_obj_set_style_text_color(ui.nav_status, color, 0);
 }
 
+void draw_lean_graphic(lv_event_t *event) {
+    const auto *graphic = static_cast<const LeanGraphic *>(lv_event_get_user_data(event));
+    lv_obj_t *object = lv_event_get_target_obj(event);
+    lv_area_t area;
+    lv_obj_get_coords(object, &area);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    const double width = lv_area_get_width(&area);
+    const double height = lv_area_get_height(&area);
+    // All strokes stay inside this object's bounds even at +/-90 degrees.
+    const double scale = std::min(width / 70.0, height / 44.0);
+    const double pivot_x = area.x1 + width / 2.0;
+    const double pivot_y = graphic->navigation_marker ? MOTO_UI_NAV_VEHICLE_Y :
+                                                         area.y1 + height * 0.78;
+    const auto point = [&](double x, double y) -> lv_point_precise_t {
+        return {
+            static_cast<lv_value_precise_t>(pivot_x + scale * x),
+            static_cast<lv_value_precise_t>(pivot_y + scale * y),
+        };
+    };
+    const auto segment = [&](double x1, double y1, double x2, double y2,
+                              lv_color_t color, double stroke) {
+        const lv_point_precise_t points[] = {point(x1, y1), point(x2, y2)};
+        draw_segment(layer, color, std::max(1, static_cast<int>(std::lround(stroke * scale))),
+                      LV_OPA_COVER, points, 2);
+    };
+    // Fixed ground and upright reference: these never follow the motorcycle.
+    if(!graphic->navigation_marker) {
+        segment(-25, 1, 25, 1, kGraphite, 1.0);
+        for(int y = -34; y < 0; y += 5)
+            segment(0, y, 0, y + 2, kGraphite, 1.0);
+    }
+    if(!graphic->valid) {
+        // No upright motorcycle is shown when the sensor has no valid angle.
+        segment(-3, -18, 3, -12, kQuiet, 1.5);
+        segment(-3, -12, 3, -18, kQuiet, 1.5);
+        if(graphic->navigation_marker) {
+            // Location is still known when roll is unavailable. A position
+            // dot preserves the map anchor without implying an upright bike.
+            draw_disc(layer, static_cast<int>(pivot_x), static_cast<int>(pivot_y),
+                       px(3), kWhite, LV_OPA_COVER);
+        }
+        return;
+    }
+
+    // Approved E artwork: preserve the red tail, mirrors, twin exhausts and
+    // dark rear tire. One small flash bitmap rotates around its contact point.
+    // Fit the complete rotation envelope, including interpolation at +/-90°.
+    const double image_scale = std::min({
+        (width / 2.0 - 3.0) / DUCATI_REAR_E_RADIUS,
+        (pivot_y - area.y1 - 3.0) / DUCATI_REAR_E_PIVOT_Y,
+        (area.y2 - pivot_y - 2.0) / DUCATI_REAR_E_PIVOT_X,
+    });
+    lv_draw_image_dsc_t image;
+    lv_draw_image_dsc_init(&image);
+    image.src = &ducati_rear_e;
+    image.pivot = {DUCATI_REAR_E_PIVOT_X, DUCATI_REAR_E_PIVOT_Y};
+    image.rotation = (static_cast<int>(std::lround(graphic->angle_deg * 10.0F)) + 3600) % 3600;
+    image.scale_x = image.scale_y = std::max(1, static_cast<int>(std::floor(image_scale * LV_SCALE_NONE)));
+    image.antialias = 1;
+    lv_area_t image_area;
+    image_area.x1 = static_cast<int>(std::lround(pivot_x)) - DUCATI_REAR_E_PIVOT_X;
+    image_area.y1 = static_cast<int>(std::lround(pivot_y)) - DUCATI_REAR_E_PIVOT_Y;
+    image_area.x2 = image_area.x1 + DUCATI_REAR_E_WIDTH - 1;
+    image_area.y2 = image_area.y1 + DUCATI_REAR_E_HEIGHT - 1;
+    lv_draw_image(layer, &image, &image_area);
+}
+
+void update_lean(lv_obj_t *label, LeanGraphic& graphic, const moto_ui_state_t *state) {
+    if(label == nullptr) return;
+    const bool valid = state->lean_valid && std::isfinite(state->lean_deg) &&
+                       std::abs(state->lean_deg) <= 90.0F;
+    char text[20] = "--°";
+    if(valid) {
+        const int angle = static_cast<int>(std::lround(std::abs(state->lean_deg)));
+        if(angle == 0) std::snprintf(text, sizeof(text), "0°");
+        else std::snprintf(text, sizeof(text), "%s %d°",
+                           state->lean_deg < 0.0F ? "L" : "R", angle);
+    }
+    if(std::strcmp(lv_label_get_text(label), text) != 0) lv_label_set_text(label, text);
+    lv_obj_set_style_text_color(label, valid ? kWhite : kQuiet, 0);
+    const float angle = valid ? state->lean_deg : 0.0F;
+    if(graphic.object != nullptr && (graphic.valid != valid || graphic.angle_deg != angle)) {
+        graphic.valid = valid;
+        graphic.angle_deg = angle;
+        lv_obj_invalidate(graphic.object);
+        if(graphic.reference != nullptr) lv_obj_invalidate(graphic.reference);
+    }
+}
+
+void lean_calibration_event(lv_event_t *) {
+    if(ui.lean_calibration_callback != nullptr)
+        ui.lean_calibration_callback(ui.lean_calibration_context);
+}
+
+#if MOTO_UI_SQUARE_SCREEN
+lv_obj_t *create_lean_readout(lv_obj_t *parent, LeanGraphic& graphic,
+                              int x, int y, bool compact) {
+    lv_obj_t *panel = lv_obj_create(parent);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_pos(panel, px(x), px(y));
+    lv_obj_set_size(panel, px(compact ? 132 : 190), px(compact ? 53 : 78));
+    lv_obj_set_style_bg_color(panel, kBlack, 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_side(panel, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(panel, 1, 0);
+    lv_obj_set_style_border_color(panel, kRed, 0);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(panel, lean_calibration_event, LV_EVENT_LONG_PRESSED, nullptr);
+
+    graphic.object = lv_obj_create(panel);
+    lv_obj_remove_style_all(graphic.object);
+    lv_obj_set_size(graphic.object, px(compact ? 66 : 94), px(compact ? 53 : 74));
+    lv_obj_set_pos(graphic.object, 0, 0);
+    lv_obj_remove_flag(graphic.object, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(graphic.object, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(graphic.object, draw_lean_graphic, LV_EVENT_DRAW_MAIN_END, &graphic);
+
+    const int text_x = compact ? 73 : 110;
+    const int text_width = compact ? 57 : 70;
+    lv_obj_t *title = make_label(panel, &ducati_label_18, kRed, "LEAN");
+    lv_obj_set_pos(title, px(text_x), px(compact ? 3 : 10));
+    lv_obj_set_width(title, px(text_width));
+    lv_obj_t *value = make_label(panel, &ducati_readout_32, kQuiet, "--°");
+    lv_obj_set_pos(value, px(text_x), px(compact ? 23 : 32));
+    lv_obj_set_width(value, px(text_width));
+    lv_obj_set_style_text_align(title, compact ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_align(value, compact ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
+    return value;
+}
+
+void draw_nav_lean_reference(lv_event_t *event) {
+    const auto *graphic = static_cast<const LeanGraphic *>(lv_event_get_user_data(event));
+    lv_area_t area;
+    lv_obj_get_coords(lv_event_get_target_obj(event), &area);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    const int left = area.x1 + px(4);
+    const int right = area.x2 - px(4);
+    const int baseline = area.y1 + px(8);
+    const auto line = [&](int x1, int y1, int x2, int y2, lv_color_t color, int stroke) {
+        const lv_point_precise_t points[] = {{static_cast<lv_value_precise_t>(x1),
+                                              static_cast<lv_value_precise_t>(y1)},
+                                             {static_cast<lv_value_precise_t>(x2),
+                                              static_cast<lv_value_precise_t>(y2)}};
+        draw_segment(layer, color, stroke, LV_OPA_COVER, points, 2);
+    };
+    line(left, baseline, right, baseline, kGraphite, px(1));
+    for(int quarter = 1; quarter <= 3; ++quarter) {
+        const int x = left + (right - left) * quarter / 4;
+        line(x, baseline - px(4), x, baseline, kQuiet, px(1));
+    }
+    if(graphic->valid) {
+        const double amount = std::clamp(graphic->angle_deg / 90.0F, -1.0F, 1.0F);
+        const int x = static_cast<int>(std::lround((left + right) / 2.0 +
+                                                    amount * (right - left) / 2.0));
+        line(x, baseline - px(8), x, baseline, kRed, px(2));
+    }
+}
+
+void create_nav_lean_readout(lv_obj_t *parent) {
+    lv_obj_t *panel = lv_obj_create(parent);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_pos(panel, px(250), px(253));
+    lv_obj_set_size(panel, px(98), px(78));
+    lv_obj_set_style_bg_color(panel, kBlack, 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(panel, lean_calibration_event, LV_EVENT_LONG_PRESSED, nullptr);
+
+    lv_obj_t *title = make_label(panel, &ducati_label_18, kRed, "LEAN");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+    ui.nav_lean_value = make_label(panel, &ducati_readout_56, kQuiet, "--°");
+    lv_obj_set_pos(ui.nav_lean_value, 0, px(23));
+    lv_obj_set_width(ui.nav_lean_value, px(98));
+    lv_obj_set_style_text_align(ui.nav_lean_value, LV_TEXT_ALIGN_CENTER, 0);
+    ui.nav_lean_graphic.reference = lv_obj_create(panel);
+    lv_obj_remove_style_all(ui.nav_lean_graphic.reference);
+    lv_obj_set_pos(ui.nav_lean_graphic.reference, 0, px(66));
+    lv_obj_set_size(ui.nav_lean_graphic.reference, px(98), px(11));
+    lv_obj_remove_flag(ui.nav_lean_graphic.reference, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui.nav_lean_graphic.reference, draw_nav_lean_reference,
+                        LV_EVENT_DRAW_MAIN_END, &ui.nav_lean_graphic);
+}
+
+void draw_nav_speedometer(lv_event_t *event) {
+    lv_area_t area;
+    lv_obj_get_coords(lv_event_get_target_obj(event), &area);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    const int center_x = area.x1 + px(48);
+    const int center_y = area.y1 + px(48);
+    lv_draw_arc_dsc_t arc;
+    lv_draw_arc_dsc_init(&arc);
+    arc.center = {center_x, center_y};
+    arc.radius = static_cast<std::uint16_t>(px(46));
+    arc.width = px(1);
+    arc.color = kGraphite;
+    arc.start_angle = 138;
+    arc.end_angle = 402;
+    lv_draw_arc(layer, &arc);
+    if(ui.nav_speed_kph > 0) {
+        arc.color = kWhite;
+        arc.width = px(2);
+        arc.rounded = 1;
+        arc.end_angle = static_cast<lv_value_precise_t>(
+            std::lround(138 + std::min<int>(160, ui.nav_speed_kph) * 264.0 / 160));
+        lv_draw_arc(layer, &arc);
+    }
+    arc.color = kRed;
+    arc.width = px(2);
+    arc.rounded = 0;
+    arc.start_angle = 369;
+    arc.end_angle = 402;
+    lv_draw_arc(layer, &arc);
+    for(int i = 0; i <= 16; ++i) {
+        const double angle = (138.0 + i * 264.0 / 16) * kPi / 180.0;
+        const double inner = px(i % 4 == 0 ? 38.0 : 40.0);
+        const double outer = px(42.0);
+        const lv_point_precise_t points[] = {
+            {static_cast<lv_value_precise_t>(center_x + std::cos(angle) * inner),
+             static_cast<lv_value_precise_t>(center_y + std::sin(angle) * inner)},
+            {static_cast<lv_value_precise_t>(center_x + std::cos(angle) * outer),
+             static_cast<lv_value_precise_t>(center_y + std::sin(angle) * outer)},
+        };
+        draw_segment(layer, i >= 14 ? kRed : kWhite, px(1), LV_OPA_COVER, points, 2);
+    }
+}
+
+void create_nav_speed_readout(lv_obj_t *parent) {
+    lv_obj_t *panel = lv_obj_create(parent);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_pos(panel, px(12), px(225));
+    lv_obj_set_size(panel, px(96), px(106));
+    lv_obj_set_style_bg_color(panel, kBlack, 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+    lv_obj_t *title = make_label(panel, &ducati_label_18, kRed, "SPEED");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+    ui.nav_speed_gauge = lv_obj_create(panel);
+    lv_obj_remove_style_all(ui.nav_speed_gauge);
+    lv_obj_set_pos(ui.nav_speed_gauge, 0, px(17));
+    lv_obj_set_size(ui.nav_speed_gauge, px(96), px(89));
+    lv_obj_remove_flag(ui.nav_speed_gauge, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui.nav_speed_gauge, draw_nav_speedometer, LV_EVENT_DRAW_MAIN_END, nullptr);
+
+    for(int value = 0; value <= 160; value += 40) {
+        const double angle = (138.0 + value * 264.0 / 160) * kPi / 180.0;
+        char text[8];
+        std::snprintf(text, sizeof(text), "%d", value);
+        lv_obj_t *label = make_label(panel, &ducati_label_18, kWhite, text);
+        lv_obj_set_size(label, px(26), px(14));
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_pos(label,
+                        static_cast<int>(std::lround(px(35.0) + std::cos(angle) * px(35.0))),
+                        static_cast<int>(std::lround(px(58.0) + std::sin(angle) * px(35.0))));
+    }
+    ui.nav_speed_value = make_label(panel, &ducati_readout_56, kWhite, "0");
+    lv_obj_set_pos(ui.nav_speed_value, 0, px(39));
+    lv_obj_set_width(ui.nav_speed_value, px(96));
+    lv_obj_set_style_text_align(ui.nav_speed_value, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_t *unit = make_label(panel, &ducati_label_18, kSoft, "km/h");
+    lv_obj_align(unit, LV_ALIGN_BOTTOM_MID, 0, px(-2));
+}
+
+void update_nav_speed_readout(const moto_ui_state_t *state) {
+    if(ui.nav_speed_value == nullptr || state->speed_kph == ui.nav_speed_kph) return;
+    ui.nav_speed_kph = state->speed_kph;
+    char text[8];
+    std::snprintf(text, sizeof(text), "%u", static_cast<unsigned>(state->speed_kph));
+    lv_label_set_text(ui.nav_speed_value, text);
+    lv_obj_invalidate(ui.nav_speed_gauge);
+}
+#endif
+
 void update_navigation(const moto_ui_state_t *state) {
+    update_lean(ui.nav_lean_value, ui.nav_lean_graphic, state);
+#if MOTO_UI_SQUARE_SCREEN
+    update_nav_speed_readout(state);
+#endif
     update_building_geometry(state);
     update_road_geometry(state);
     update_route_geometry(state);
@@ -1410,14 +1720,27 @@ void update_navigation(const moto_ui_state_t *state) {
     lv_label_set_text(ui.nav_unit, unit);
     // This number is never the total trip distance. Its physical attachment to
     // the maneuver glyph makes that meaning clear without an explanatory label.
+#if MOTO_UI_SQUARE_SCREEN
+    lv_obj_set_style_text_font(ui.nav_distance,
+                                std::strlen(value) >= 4 ? &ducati_readout_32 : &ducati_readout_56, 0);
+    lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_LEFT, px(76), px(25));
+#else
     lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_LEFT, px(151), px(244));
+#endif
     lv_obj_align_to(ui.nav_unit, ui.nav_distance, LV_ALIGN_OUT_RIGHT_BOTTOM,
                     px(6), px(-7));
 
+#if MOTO_UI_SQUARE_SCREEN
+    lv_bar_set_value(ui.nav_progress,
+                     std::min<int>(100, state->route_progress_percent), LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(ui.nav_progress, traffic_color(state->traffic),
+                              LV_PART_INDICATOR);
+#else
     lv_arc_set_value(ui.nav_progress,
                      std::min<int>(100, state->route_progress_percent));
     lv_obj_set_style_arc_color(ui.nav_progress, traffic_color(state->traffic),
                                LV_PART_INDICATOR);
+#endif
 
     if(state->speed_limit_kph > 0) {
         char limit[8];
@@ -1431,6 +1754,7 @@ void update_navigation(const moto_ui_state_t *state) {
 }
 
 void update_speedometer(const moto_ui_state_t *state) {
+    update_lean(ui.speed_lean_value, ui.speed_lean_graphic, state);
     char value[8];
     std::snprintf(value, sizeof(value), "%u",
                   static_cast<unsigned>(state->speed_kph));
@@ -1439,7 +1763,8 @@ void update_speedometer(const moto_ui_state_t *state) {
     lv_arc_set_value(ui.speed_arc, std::min<int>(160, state->speed_kph));
     for(int i = 0; i < kSpeedTickCount; ++i) {
         const bool active = state->speed_kph >= static_cast<unsigned>(i * 10);
-        lv_obj_set_style_line_color(ui.speed_ticks[i], active ? kWhite : kGraphite, 0);
+        lv_obj_set_style_line_color(ui.speed_ticks[i], i >= 14 ? kRed :
+                                    (active ? kWhite : kSoft), 0);
     }
 }
 
@@ -1468,7 +1793,7 @@ void update_compass(const moto_ui_state_t *state) {
         };
         lv_line_set_points_mutable(ui.compass_ticks[i],
                                    ui.compass_tick_points[i], 2);
-        lv_obj_set_style_line_color(ui.compass_ticks[i], i == 0 ? kAmber : kQuiet, 0);
+        lv_obj_set_style_line_color(ui.compass_ticks[i], i == 0 ? kRed : kSoft, 0);
     }
 
     static const double bearings[4] = {0.0, 90.0, 180.0, 270.0};
@@ -1479,7 +1804,7 @@ void update_compass(const moto_ui_state_t *state) {
         const int y = static_cast<int>(px(180.0) - std::cos(angle) * px(112.0));
         lv_label_set_text(ui.compass_letters[i], letters[i]);
         lv_obj_set_pos(ui.compass_letters[i], x - px(14), y - px(10));
-        lv_obj_set_style_text_color(ui.compass_letters[i], i == 0 ? kAmber : kQuiet, 0);
+        lv_obj_set_style_text_color(ui.compass_letters[i], i == 0 ? kRed : kWhite, 0);
     }
 }
 
@@ -1495,7 +1820,7 @@ void update_music_view() {
         lv_obj_add_flag(ui.music_buttons[3], LV_OBJ_FLAG_HIDDEN);
     }
     lv_obj_set_style_border_color(ui.music_disc,
-                                  ui.music.playing ? kIce : kGraphite, 0);
+                                  ui.music.playing ? kRed : kGraphite, 0);
 }
 
 void music_button_event(lv_event_t *event) {
@@ -1515,7 +1840,7 @@ void create_page_dots() {
         ui.page_dots[i] = lv_obj_create(ui.screen);
         lv_obj_remove_style_all(ui.page_dots[i]);
         lv_obj_set_size(ui.page_dots[i], px(5), px(5));
-        lv_obj_set_y(ui.page_dots[i], px(337));
+        lv_obj_set_y(ui.page_dots[i], px(MOTO_UI_SQUARE_SCREEN ? 348 : 337));
         lv_obj_set_style_bg_opa(ui.page_dots[i], LV_OPA_COVER, 0);
         lv_obj_set_style_radius(ui.page_dots[i], px(3), 0);
         lv_obj_clear_flag(ui.page_dots[i], LV_OBJ_FLAG_CLICKABLE);
@@ -1535,7 +1860,7 @@ void create_navigation_page() {
     // phone guidance with the built-in fixture while riding.
     lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_set_height(ui.nav_map, px(232));
+    lv_obj_set_height(ui.nav_map, MOTO_UI_NAV_MAP_HEIGHT);
 
     // Real building footprints are quiet closed outlines beneath both roads
     // and the selected route. No inferred rectangles or decorative fill is
@@ -1544,7 +1869,7 @@ void create_navigation_page() {
         i < MOTO_UI_BUILDING_FOOTPRINT_CAPACITY; ++i) {
         ui.nav_buildings[i] = create_map_polyline(ui.nav_map,
                                                   ui.nav_building_lines[i]);
-        lv_obj_set_size(ui.nav_buildings[i], MOTO_UI_CANVAS_WIDTH, px(232));
+        lv_obj_set_size(ui.nav_buildings[i], MOTO_UI_CANVAS_WIDTH, MOTO_UI_NAV_MAP_HEIGHT);
         lv_obj_set_style_line_width(ui.nav_buildings[i], px(1), 0);
         lv_obj_set_style_line_color(ui.nav_buildings[i], kBuildingGray, 0);
         lv_obj_set_style_line_opa(ui.nav_buildings[i], LV_OPA_COVER, 0);
@@ -1558,7 +1883,7 @@ void create_navigation_page() {
     // future online provider must simplify its response to the same limit.
     for(std::uint8_t i = 0; i < MOTO_UI_ROAD_POLYLINE_CAPACITY; ++i) {
         ui.nav_roads[i] = create_map_polyline(ui.nav_map, ui.nav_road_lines[i]);
-        lv_obj_set_size(ui.nav_roads[i], MOTO_UI_CANVAS_WIDTH, px(232));
+        lv_obj_set_size(ui.nav_roads[i], MOTO_UI_CANVAS_WIDTH, MOTO_UI_NAV_MAP_HEIGHT);
         lv_obj_set_style_line_width(ui.nav_roads[i], px(3), 0);
         lv_obj_set_style_line_color(ui.nav_roads[i], kRoadGray, 0);
         lv_obj_set_style_line_opa(ui.nav_roads[i], LV_OPA_COVER, 0);
@@ -1567,12 +1892,12 @@ void create_navigation_page() {
     }
 
     ui.nav_route_shadow = create_map_polyline(ui.nav_map, ui.nav_route_shadow_line);
-    lv_obj_set_size(ui.nav_route_shadow, MOTO_UI_CANVAS_WIDTH, px(232));
+    lv_obj_set_size(ui.nav_route_shadow, MOTO_UI_CANVAS_WIDTH, MOTO_UI_NAV_MAP_HEIGHT);
     lv_obj_set_style_line_width(ui.nav_route_shadow, px(13), 0);
     lv_obj_set_style_line_color(ui.nav_route_shadow, kGraphite, 0);
     lv_obj_set_style_line_rounded(ui.nav_route_shadow, true, 0);
     ui.nav_route = create_map_polyline(ui.nav_map, ui.nav_route_line);
-    lv_obj_set_size(ui.nav_route, MOTO_UI_CANVAS_WIDTH, px(232));
+    lv_obj_set_size(ui.nav_route, MOTO_UI_CANVAS_WIDTH, MOTO_UI_NAV_MAP_HEIGHT);
     lv_obj_set_style_line_width(ui.nav_route, px(6), 0);
     lv_obj_set_style_line_color(ui.nav_route, kWhite, 0);
     lv_obj_set_style_line_rounded(ui.nav_route, true, 0);
@@ -1582,37 +1907,77 @@ void create_navigation_page() {
 
     ui.nav_marker = lv_obj_create(ui.nav_map);
     lv_obj_remove_style_all(ui.nav_marker);
+#if MOTO_UI_SQUARE_SCREEN
+    // The same fixed contact point is used by NavPresenter for every map layer.
+    // This box contains the bike's complete rotation envelope, even at +/-90°.
+    lv_obj_set_size(ui.nav_marker, px(156), px(124));
+    lv_obj_set_pos(ui.nav_marker, MOTO_UI_NAV_VEHICLE_X - px(156) / 2, px(220));
+    lv_obj_remove_flag(ui.nav_marker, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(ui.nav_marker, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(ui.nav_marker, lean_calibration_event, LV_EVENT_LONG_PRESSED, nullptr);
+    ui.nav_lean_graphic.object = ui.nav_marker;
+    ui.nav_lean_graphic.navigation_marker = true;
+    lv_obj_add_event_cb(ui.nav_marker, draw_lean_graphic,
+                        LV_EVENT_DRAW_MAIN_END, &ui.nav_lean_graphic);
+#else
     lv_obj_set_size(ui.nav_marker, px(35), px(37));
     lv_obj_set_pos(ui.nav_marker, px(163), px(177));
     lv_obj_clear_flag(ui.nav_marker, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui.nav_marker, draw_vehicle_marker,
                         LV_EVENT_DRAW_MAIN_END, nullptr);
+#endif
 
-    ui.nav_status = make_label(page, &lv_font_montserrat_16, kAmber, "");
-    lv_obj_set_width(ui.nav_status, px(220));
+    ui.nav_status = make_label(page, &ducati_label_18, kAmber, "");
+    lv_obj_set_width(ui.nav_status, px(MOTO_UI_SQUARE_SCREEN ? 108 : 220));
     lv_obj_set_style_text_align(ui.nav_status, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui.nav_status, LV_ALIGN_TOP_MID, 0, px(16));
+    lv_obj_set_style_bg_color(ui.nav_status, kBlack, 0);
+    lv_obj_set_style_bg_opa(ui.nav_status, LV_OPA_COVER, 0);
+    lv_obj_align(ui.nav_status, LV_ALIGN_TOP_MID, 0, px(MOTO_UI_SQUARE_SCREEN ? 26 : 16));
+
+    lv_obj_t *instruction = page;
+#if MOTO_UI_SQUARE_SCREEN
+    lv_obj_t *model = make_label(page, &ducati_label_18, kWhite, "PANIGALE V2S");
+    lv_obj_set_style_bg_color(model, kBlack, 0);
+    lv_obj_set_style_bg_opa(model, LV_OPA_COVER, 0);
+    lv_obj_align(model, LV_ALIGN_TOP_MID, 0, px(7));
+    create_nav_speed_readout(page);
+    create_nav_lean_readout(page);
+    instruction = lv_obj_create(page);
+    lv_obj_remove_style_all(instruction);
+    lv_obj_set_pos(instruction, 0, 0);
+    lv_obj_set_size(instruction, px(148), px(82));
+    lv_obj_set_style_bg_color(instruction, kBlack, 0);
+    lv_obj_set_style_bg_opa(instruction, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(instruction, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(instruction, LV_OBJ_FLAG_GESTURE_BUBBLE);
+#endif
 
     // The next action is the navigation page's single visual hero. The short
     // road window above is deliberately quieter and contains no fake side
     // streets; this standard symbol must be understood in one glance.
-    ui.nav_maneuver = lv_obj_create(page);
+    ui.nav_maneuver = lv_obj_create(instruction);
     lv_obj_remove_style_all(ui.nav_maneuver);
+#if MOTO_UI_SQUARE_SCREEN
+    lv_obj_set_size(ui.nav_maneuver, px(76), px(73));
+    lv_obj_set_pos(ui.nav_maneuver, 0, px(4));
+#else
     lv_obj_set_size(ui.nav_maneuver, px(116), px(108));
     lv_obj_set_pos(ui.nav_maneuver, px(29), px(220));
+#endif
     lv_obj_clear_flag(ui.nav_maneuver, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui.nav_maneuver, draw_maneuver_icon,
                         LV_EVENT_DRAW_MAIN_END, nullptr);
 
-    ui.nav_distance = make_label(page, &lv_font_montserrat_48, kWhite, "300");
-    ui.nav_unit = make_label(page, &lv_font_montserrat_20, kQuiet, "m");
+    ui.nav_distance = make_label(instruction, &ducati_readout_56, kWhite, "300");
+    ui.nav_unit = make_label(instruction, &ducati_label_22, kSoft, "m");
 
     ui.nav_limit = lv_obj_create(page);
     lv_obj_set_size(ui.nav_limit, px(61), px(61));
-    // Keep the optional demo/SDK-provided value inside the circular safe area.
+    // The red ring is the speed-limit sign, independent of the panel shape.
     // Real AMap Web-Service snapshots use zero and remain hidden because that
     // API does not return a road speed limit.
-    lv_obj_set_pos(ui.nav_limit, px(248), px(238));
+    lv_obj_set_pos(ui.nav_limit, px(MOTO_UI_SQUARE_SCREEN ? 290 : 248),
+                                  px(MOTO_UI_SQUARE_SCREEN ? 15 : 238));
     lv_obj_set_style_radius(ui.nav_limit, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(ui.nav_limit, kWhite, 0);
     lv_obj_set_style_bg_opa(ui.nav_limit, LV_OPA_COVER, 0);
@@ -1620,9 +1985,26 @@ void create_navigation_page() {
     lv_obj_set_style_border_width(ui.nav_limit, px(6), 0);
     lv_obj_set_style_pad_all(ui.nav_limit, 0, 0);
     lv_obj_clear_flag(ui.nav_limit, LV_OBJ_FLAG_CLICKABLE);
-    ui.nav_limit_value = make_label(ui.nav_limit, &lv_font_montserrat_28, kBlack, "70");
+    ui.nav_limit_value = make_label(ui.nav_limit,
+                                    MOTO_UI_SQUARE_SCREEN ? &ducati_readout_56 : &ducati_readout_32,
+                                    kBlack, "70");
     lv_obj_center(ui.nav_limit_value);
 
+#if MOTO_UI_SQUARE_SCREEN
+    // Ducati 2.16: use the square panel's full width. A round-screen perimeter
+    // arc looks like a circular bezel and crowds the maneuver on this panel.
+    ui.nav_progress = lv_bar_create(page);
+    lv_obj_remove_style_all(ui.nav_progress);
+    lv_obj_set_size(ui.nav_progress, px(324), px(4));
+    lv_obj_set_pos(ui.nav_progress, px(18), px(346));
+    lv_bar_set_range(ui.nav_progress, 0, 100);
+    lv_bar_set_value(ui.nav_progress, 24, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(ui.nav_progress, kGraphite, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.nav_progress, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.nav_progress, kWhite, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(ui.nav_progress, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_clear_flag(ui.nav_progress, LV_OBJ_FLAG_CLICKABLE);
+#else
     ui.nav_progress = lv_arc_create(page);
     lv_obj_set_size(ui.nav_progress, px(316), px(316));
     lv_obj_center(ui.nav_progress);
@@ -1635,11 +2017,11 @@ void create_navigation_page() {
     lv_obj_set_style_arc_width(ui.nav_progress, px(3), LV_PART_MAIN);
     lv_obj_set_style_arc_color(ui.nav_progress, kGraphite, LV_PART_MAIN);
     lv_obj_set_style_arc_width(ui.nav_progress, px(4), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(ui.nav_progress, kIce, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(ui.nav_progress, kWhite, LV_PART_INDICATOR);
+#endif
     lv_obj_move_to_index(ui.nav_progress, 0);
 
-    // Connection lifecycle overlay. The composition follows the same circular
-    // safe area as the navigation instrument and intentionally uses one hero
+    // Connection lifecycle overlay. The composition uses one central hero
     // symbol instead of a dashboard of technical status labels.
     ui.nav_lifecycle = make_layer(page);
     lv_obj_set_style_bg_color(ui.nav_lifecycle, kBlack, 0);
@@ -1648,7 +2030,7 @@ void create_navigation_page() {
     lv_obj_add_flag(ui.nav_lifecycle, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     ui.nav_lifecycle_kicker = make_label(
-        ui.nav_lifecycle, &lv_font_montserrat_16, kQuiet,
+        ui.nav_lifecycle, &ducati_label_18, kQuiet,
         "MOTO GPS / PHONE LINK");
     lv_obj_set_style_text_letter_space(ui.nav_lifecycle_kicker, px(2), 0);
     lv_obj_align(ui.nav_lifecycle_kicker, LV_ALIGN_TOP_MID, 0, px(39));
@@ -1662,7 +2044,7 @@ void create_navigation_page() {
                         LV_EVENT_DRAW_MAIN_END, nullptr);
 
     ui.nav_lifecycle_title = make_label(
-        ui.nav_lifecycle, &lv_font_montserrat_28, kWhite, "CONNECT PHONE");
+        ui.nav_lifecycle, &ducati_readout_32, kWhite, "CONNECT PHONE");
     lv_obj_set_width(ui.nav_lifecycle_title, px(310));
     lv_obj_set_style_text_align(ui.nav_lifecycle_title,
                                 LV_TEXT_ALIGN_CENTER, 0);
@@ -1687,9 +2069,13 @@ void create_navigation_page() {
 
 void create_speed_page() {
     lv_obj_t *page = ui.pages[MOTO_UI_PAGE_SPEED];
-    lv_obj_t *title = make_label(page, &lv_font_montserrat_16, kQuiet, "SPEED");
-    lv_obj_set_style_text_letter_space(title, px(4), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(48));
+    lv_obj_t *title = make_label(page, &ducati_label_22, kRed, "SPEED");
+    lv_obj_set_style_text_letter_space(title, px(2), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(78));
+
+    lv_obj_t *model = make_label(page, &ducati_label_18, kWhite, "PANIGALE V2S");
+    lv_obj_set_style_text_letter_space(model, 1, 0);
+    lv_obj_align(model, LV_ALIGN_TOP_MID, 0, px(7));
 
     ui.speed_arc = lv_arc_create(page);
     lv_obj_set_size(ui.speed_arc, px(312), px(312));
@@ -1699,10 +2085,23 @@ void create_speed_page() {
     lv_arc_set_range(ui.speed_arc, 0, 160);
     lv_obj_remove_style(ui.speed_arc, nullptr, LV_PART_KNOB);
     lv_obj_clear_flag(ui.speed_arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_width(ui.speed_arc, px(5), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ui.speed_arc, px(3), LV_PART_MAIN);
     lv_obj_set_style_arc_color(ui.speed_arc, kGraphite, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(ui.speed_arc, px(7), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(ui.speed_arc, kIce, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(ui.speed_arc, px(5), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(ui.speed_arc, kWhite, LV_PART_INDICATOR);
+
+    // The red end of the speed scale echoes the supplied instrument styling.
+    // This remains a 0..160 km/h display, with no synthetic engine RPM/gear.
+    lv_obj_t *end_band = lv_arc_create(page);
+    lv_obj_remove_style_all(end_band);
+    lv_obj_set_size(end_band, px(312), px(312));
+    lv_obj_center(end_band);
+    lv_arc_set_rotation(end_band, 138);
+    lv_arc_set_bg_angles(end_band, 231, 264);
+    lv_obj_set_style_arc_color(end_band, kRed, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(end_band, px(5), LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(end_band, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_remove_flag(end_band, LV_OBJ_FLAG_CLICKABLE);
 
     for(int i = 0; i < kSpeedTickCount; ++i) {
         const double angle = (138.0 + i * (264.0 / (kSpeedTickCount - 1))) * kPi / 180.0;
@@ -1720,16 +2119,32 @@ void create_speed_page() {
                         MOTO_UI_CANVAS_HEIGHT);
         lv_line_set_points_mutable(ui.speed_ticks[i], ui.speed_tick_points[i], 2);
         lv_obj_set_style_line_width(ui.speed_ticks[i], px(i % 2 == 0 ? 3 : 2), 0);
-        lv_obj_set_style_line_color(ui.speed_ticks[i], kGraphite, 0);
+        lv_obj_set_style_line_color(ui.speed_ticks[i], i >= 14 ? kRed : kSoft, 0);
     }
-    ui.speed_value = make_label(page, &lv_font_montserrat_48, kWhite, "72");
+
+    for(int value = 0; value <= 160; value += 40) {
+        const double angle = (138.0 + value * 264.0 / 160.0) * kPi / 180.0;
+        char number[8];
+        std::snprintf(number, sizeof(number), "%d", value);
+        lv_obj_t *tick_label = make_label(page, &ducati_label_18,
+                                           value == 160 ? kRed : kWhite, number);
+        lv_obj_set_size(tick_label, px(30), px(16));
+        lv_obj_set_style_text_align(tick_label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_pos(tick_label,
+                        static_cast<int>(std::lround(px(165.0) + std::cos(angle) * px(119.0))),
+                        static_cast<int>(std::lround(px(172.0) + std::sin(angle) * px(119.0))));
+    }
+    ui.speed_value = make_label(page, &ducati_readout_88, kWhite, "72");
     lv_obj_align(ui.speed_value, LV_ALIGN_CENTER, 0, px(-10));
-    lv_obj_t *unit = make_label(page, &lv_font_montserrat_20, kQuiet, "km/h");
-    lv_obj_set_style_text_letter_space(unit, px(2), 0);
-    lv_obj_align(unit, LV_ALIGN_CENTER, 0, px(45));
-    lv_obj_t *caption = make_label(page, &lv_font_montserrat_16, kQuiet, "LIVE SPEED");
+    lv_obj_t *unit = make_label(page, &ducati_label_22, kSoft, "km/h");
+    lv_obj_align(unit, LV_ALIGN_CENTER, 0, px(47));
+#if MOTO_UI_SQUARE_SCREEN
+    ui.speed_lean_value = create_lean_readout(page, ui.speed_lean_graphic, 85, 265, false);
+#else
+    lv_obj_t *caption = make_label(page, &ducati_label_18, kQuiet, "LIVE SPEED");
     lv_obj_set_style_text_letter_space(caption, px(2), 0);
     lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, px(-49));
+#endif
 }
 
 void create_compass_page() {
@@ -1739,10 +2154,10 @@ void create_compass_page() {
         lv_obj_set_size(ui.compass_ticks[i], MOTO_UI_CANVAS_WIDTH,
                         MOTO_UI_CANVAS_HEIGHT);
         lv_obj_set_style_line_width(ui.compass_ticks[i], px(i % 3 == 0 ? 3 : 2), 0);
-        lv_obj_set_style_line_color(ui.compass_ticks[i], kQuiet, 0);
+        lv_obj_set_style_line_color(ui.compass_ticks[i], kSoft, 0);
     }
     for(int i = 0; i < 4; ++i) {
-        ui.compass_letters[i] = make_label(page, &lv_font_montserrat_16, kQuiet, "N");
+        ui.compass_letters[i] = make_label(page, &ducati_label_18, kWhite, "N");
         lv_obj_set_size(ui.compass_letters[i], px(28), px(22));
         lv_obj_set_style_text_align(ui.compass_letters[i], LV_TEXT_ALIGN_CENTER, 0);
     }
@@ -1754,18 +2169,18 @@ void create_compass_page() {
     lv_obj_set_style_bg_opa(index, LV_OPA_COVER, 0);
     lv_obj_set_style_transform_rotation(index, 450, 0);
 
-    ui.compass_heading = make_label(page, &lv_font_montserrat_48, kAmber, "359°");
+    ui.compass_heading = make_label(page, &ducati_readout_56, kWhite, "359°");
     lv_obj_align(ui.compass_heading, LV_ALIGN_CENTER, 0, px(-37));
-    ui.compass_cardinal = make_label(page, &lv_font_montserrat_20, kAmber, "N");
+    ui.compass_cardinal = make_label(page, &ducati_label_22, kRed, "N");
     lv_obj_align(ui.compass_cardinal, LV_ALIGN_CENTER, 0, px(10));
-    ui.compass_speed = make_label(page, &lv_font_montserrat_20, kWhite, "72 km/h");
+    ui.compass_speed = make_label(page, &ducati_label_22, kWhite, "72 km/h");
     lv_obj_set_style_text_letter_space(ui.compass_speed, px(1), 0);
     lv_obj_align(ui.compass_speed, LV_ALIGN_CENTER, 0, px(57));
 }
 
 void create_music_page() {
     lv_obj_t *page = ui.pages[MOTO_UI_PAGE_MUSIC];
-    ui.music_source = make_label(page, &lv_font_montserrat_16, kQuiet, "APPLE MUSIC");
+    ui.music_source = make_label(page, &ducati_label_18, kRed, "APPLE MUSIC");
     lv_obj_set_style_text_letter_space(ui.music_source, px(2), 0);
     lv_obj_align(ui.music_source, LV_ALIGN_TOP_MID, 0, px(37));
 
@@ -1776,7 +2191,7 @@ void create_music_page() {
     lv_obj_set_style_bg_color(ui.music_disc, kGraphite, 0);
     lv_obj_set_style_bg_opa(ui.music_disc, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(ui.music_disc, px(5), 0);
-    lv_obj_set_style_border_color(ui.music_disc, kIce, 0);
+    lv_obj_set_style_border_color(ui.music_disc, kRed, 0);
     lv_obj_set_style_pad_all(ui.music_disc, 0, 0);
     lv_obj_t *core = lv_obj_create(ui.music_disc);
     lv_obj_set_size(core, px(30), px(30));
@@ -1786,12 +2201,12 @@ void create_music_page() {
     lv_obj_set_style_bg_opa(core, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(core, 0, 0);
 
-    ui.music_title = make_label(page, &lv_font_montserrat_20, kWhite, "NIGHT RIDE");
+    ui.music_title = make_label(page, &ducati_label_22, kWhite, "NIGHT RIDE");
     lv_obj_set_width(ui.music_title, px(260));
     lv_obj_set_style_text_align(ui.music_title, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(ui.music_title, LV_LABEL_LONG_DOT);
     lv_obj_align(ui.music_title, LV_ALIGN_TOP_MID, 0, px(190));
-    ui.music_artist = make_label(page, &lv_font_montserrat_16, kQuiet, "PHONE NOW PLAYING");
+    ui.music_artist = make_label(page, &ducati_label_18, kQuiet, "PHONE NOW PLAYING");
     lv_obj_set_width(ui.music_artist, px(260));
     lv_obj_set_style_text_align(ui.music_artist, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(ui.music_artist, LV_LABEL_LONG_DOT);
@@ -1836,7 +2251,7 @@ void create_music_page() {
             ui.music_buttons[i], music_button_event, LV_EVENT_CLICKED,
             reinterpret_cast<void *>(static_cast<std::intptr_t>(i)));
         ui.music_button_labels[i] = make_label(
-            ui.music_buttons[i], i == 3 ? &lv_font_montserrat_16 : &lv_font_montserrat_20,
+            ui.music_buttons[i], i == 3 ? &ducati_label_18 : &ducati_label_22,
             i == 1 ? kBlack : kWhite, labels[i]);
         lv_obj_center(ui.music_button_labels[i]);
     }
@@ -1968,6 +2383,14 @@ extern "C" void moto_nav_ui_show_power_off_screen(void) {
 }
 
 extern "C" void moto_nav_ui_create(void) {
+    // Recreating the UI must cancel callbacks before resetting their retained
+    // widget pointers. Otherwise an earlier page-dot timer can outlive the tree
+    // and later fire while a boot screen has replaced all navigation widgets.
+    lv_timer_t *old_timers[] = {ui.page_dots_timer, ui.nav_route_motion_timer,
+                                 ui.nav_lifecycle_timer, ui.nav_success_timer};
+    for(lv_timer_t *timer : old_timers) {
+        if(timer != nullptr) lv_timer_delete(timer);
+    }
     reset_ui_state();
     ui.screen = lv_screen_active();
     lv_obj_clean(ui.screen);
@@ -2024,11 +2447,17 @@ extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t *state) {
     // compass rose actually changes with yaw; labels, arcs and hidden pages
     // remain untouched so LVGL submits a small, bounded dirty region.
     if(ui.page == MOTO_UI_PAGE_NAVIGATION) {
+        update_lean(ui.nav_lean_value, ui.nav_lean_graphic, state);
+#if MOTO_UI_SQUARE_SCREEN
+        update_nav_speed_readout(state);
+#endif
         update_building_geometry(state);
         update_road_geometry(state);
         update_route_geometry(state);
     } else if(ui.page == MOTO_UI_PAGE_COMPASS) {
         update_compass(state);
+    } else if(ui.page == MOTO_UI_PAGE_SPEED) {
+        update_lean(ui.speed_lean_value, ui.speed_lean_graphic, state);
     }
 }
 
@@ -2058,6 +2487,12 @@ extern "C" void moto_nav_ui_set_phone_connection(
         }
     }
     refresh_lifecycle();
+}
+
+extern "C" void moto_nav_ui_set_lean_calibration_callback(
+    moto_lean_calibration_callback_t callback, void *context) {
+    ui.lean_calibration_callback = callback;
+    ui.lean_calibration_context = context;
 }
 
 extern "C" void moto_nav_ui_set_reduce_motion(uint8_t reduce_motion) {

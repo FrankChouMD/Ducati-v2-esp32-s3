@@ -8,6 +8,7 @@
 #include "moto/ble_protocol/ble_protocol.hpp"
 #include "moto_nav_presenter.hpp"
 #include "motion_heading_fusion.hpp"
+#include "motion_lean_fusion.hpp"
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -34,6 +35,7 @@ class PhoneNavBridge {
 #endif
   void on_link_state(bool active);
   void on_imu_sample(float heading_rate_dps, std::uint64_t sample_ms);
+  void on_imu_sample(const MotionImuSample& sample);
   void update_demo(std::uint64_t now_ms);
   moto::ble::AckStatus on_message(
       const moto::ble::ReassembledMessage& message);
@@ -58,6 +60,7 @@ class PhoneNavBridge {
   static void page_changed(moto_ui_page_t page, void* context);
   static void music_command(moto_music_command_t command, void* context);
   static void demo_changed(uint8_t enabled, void* context);
+  static void lean_calibration_requested(void* context);
 
   void consume_navigation(const moto::ble::NavigationSnapshot& input);
   moto::ble::AckStatus consume_geometry(
@@ -120,7 +123,10 @@ class PhoneNavBridge {
   std::atomic<TaskHandle_t> render_task_handle_{nullptr};
 #endif
   MotionHeadingFusion heading_fusion_;
+  MotionLeanFusion lean_fusion_;
+  bool lean_dirty_ = false;
   std::uint64_t last_motion_present_ms_ = 0;
+  std::uint64_t last_imu_sample_ms_ = 0;
   moto::nav::NavSnapshot snapshot_before_demo_{};
   std::uint64_t demo_started_ms_ = 0;
   bool demo_active_ = false;

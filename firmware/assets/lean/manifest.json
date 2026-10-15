@@ -1,0 +1,27 @@
+{
+  "design": "E - approved rear-view motorcycle icon",
+  "source": "firmware/assets/lean/ducati-rear-e-source.png",
+  "source_sha256": "656e56f096c5727e91442df7513eec6205bca9ebc85ed32c403aca5e4f465957",
+  "source_crop": [
+    71,
+    109,
+    953,
+    1428
+  ],
+  "size": [
+    86,
+    128
+  ],
+  "format": "LV_COLOR_FORMAT_ARGB8888 (BGRA bytes)",
+  "pixel_bytes": 44032,
+  "pivot": [
+    43,
+    126
+  ],
+  "maximum_rotation_radius": 135,
+  "outputs_sha256": {
+    "ducati_rear_e.h": "b71850fe0e02c083408a995ddbad5e3aa4543cd3672ea956fe4417e1e37ab0c1",
+    "ducati_rear_e.c": "c96979afc37478b7ec6ec3e9a57f2d0a8f82d05d524633b41714ec8c3e3d4db5",
+    "ducati_rear_e.png": "f880d162d682f2e40813145d4d1d020d68636d93073a572c14783ad6e56f54f8"
+  }
+}

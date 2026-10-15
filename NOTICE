@@ -25,3 +25,8 @@ ReneeWrites. Source: https://commons.wikimedia.org/wiki/File:Ducati_red_logo.svg
 See firmware/assets/boot/README.md for provenance and generated asset records.
 Brand artwork retains its original rights status and is not relicensed by the
 root PolyForm license.
+
+Barlow Condensed instrument fonts and generated subsets:
+Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow).
+Licensed under the SIL Open Font License 1.1; see firmware/assets/fonts/OFL.txt
+and firmware/assets/fonts/README.md. Font data retains that independent license.

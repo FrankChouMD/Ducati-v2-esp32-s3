@@ -3,12 +3,11 @@
 #include <cstdint>
 
 #include "esp_err.h"
+#include "motion_imu_sample.hpp"
 
 class MotionHeadingSensor {
  public:
-  using SampleCallback = void (*)(float heading_rate_dps,
-                                  std::uint64_t sample_ms,
-                                  void* context);
+  using SampleCallback = void (*)(const MotionImuSample& sample, void* context);
 
   MotionHeadingSensor() = default;
   MotionHeadingSensor(const MotionHeadingSensor&) = delete;

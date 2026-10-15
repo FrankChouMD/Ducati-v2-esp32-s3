@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "bsp/esp-bsp.h"
 #include "esp_log.h"
@@ -103,16 +104,30 @@ void MotionHeadingSensor::run() {
              esp_err_to_name(init));
     return;
   }
-  ESP_ERROR_CHECK_WITHOUT_ABORT(
-      qmi8658_set_accel_range(&device, QMI8658_ACCEL_RANGE_4G));
-  ESP_ERROR_CHECK_WITHOUT_ABORT(
-      qmi8658_set_accel_odr(&device, QMI8658_ACCEL_ODR_125HZ));
-  ESP_ERROR_CHECK_WITHOUT_ABORT(
-      qmi8658_set_gyro_range(&device, QMI8658_GYRO_RANGE_512DPS));
-  ESP_ERROR_CHECK_WITHOUT_ABORT(
-      qmi8658_set_gyro_odr(&device, QMI8658_GYRO_ODR_125HZ));
+  esp_err_t configuration = qmi8658_set_accel_range(&device, QMI8658_ACCEL_RANGE_4G);
+  if (configuration == ESP_OK)
+    configuration = qmi8658_set_accel_odr(&device, QMI8658_ACCEL_ODR_125HZ);
+  if (configuration == ESP_OK)
+    configuration = qmi8658_set_gyro_range(&device, QMI8658_GYRO_RANGE_512DPS);
+  if (configuration == ESP_OK)
+    configuration = qmi8658_set_gyro_odr(&device, QMI8658_GYRO_ODR_125HZ);
+  if (configuration != ESP_OK) {
+    ESP_LOGW(kTag, "QMI8658 configuration failed; local motion unavailable: %s",
+             esp_err_to_name(configuration));
+    return;
+  }
   qmi8658_set_accel_unit_mps2(&device, true);
   qmi8658_set_gyro_unit_dps(&device, true);
+
+  const auto emit_sample = [this](const qmi8658_data_t& data, float heading_rate) {
+    MotionImuSample sample;
+    sample.accel_mps2 = {data.accelX, data.accelY, data.accelZ};
+    sample.gyro_dps = {data.gyroX, data.gyroY, data.gyroZ};
+    sample.heading_rate_dps = heading_rate;
+    sample.sample_ms = monotonic_ms();
+    sample.valid = true;
+    callback_(sample, callback_context_);
+  };
 
   GravityEstimate gravity;
   float bias_sum = 0.0F;
@@ -135,6 +150,8 @@ void MotionHeadingSensor::run() {
         bias_sum = 0.0F;
         stable_samples = 0;
       }
+      // Let lean calibration run concurrently with yaw bias calibration.
+      emit_sample(data, 0.0F);
     }
     xTaskDelayUntil(&next_sample_tick, kSampleDelay);
   }
@@ -145,6 +162,8 @@ void MotionHeadingSensor::run() {
            static_cast<double>(bias_dps), stable_samples);
 
   int consecutive_failures = 0;
+  std::uint64_t last_healthy_ms = monotonic_ms();
+  std::uint64_t last_invalid_notice_ms = last_healthy_ms;
   next_sample_tick = xTaskGetTickCount();
   while (true) {
     bool ready = false;
@@ -163,12 +182,21 @@ void MotionHeadingSensor::run() {
             accel > 8.2F && accel < 11.4F) {
           bias_dps += (raw_rate - bias_dps) * 0.0008F;
         }
-        callback_(corrected_rate, monotonic_ms(), callback_context_);
+        emit_sample(data, corrected_rate);
+        last_healthy_ms = monotonic_ms();
       }
     }
     if (result != ESP_OK && ++consecutive_failures == 25) {
       ESP_LOGW(kTag, "QMI8658 read errors continue: %s",
                esp_err_to_name(result));
+    }
+    const std::uint64_t now = monotonic_ms();
+    if (now - last_healthy_ms > 160U && now - last_invalid_notice_ms >= 160U) {
+      MotionImuSample missing;
+      missing.sample_ms = now;
+      missing.heading_rate_dps = std::numeric_limits<float>::quiet_NaN();
+      callback_(missing, callback_context_);
+      last_invalid_notice_ms = now;
     }
     xTaskDelayUntil(&next_sample_tick, kSampleDelay);
   }

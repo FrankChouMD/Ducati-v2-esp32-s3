@@ -22,6 +22,12 @@ idf_component_register(
         "${MOTO_SHARED_BLE_PROTOCOL_SOURCE}"
         "${MOTO_SHARED_NAV_PRESENTER_SOURCE}"
         "${MOTO_SHARED_UI_FONT}"
+        "${MOTO_REPOSITORY_ROOT}/shared/nav_ui/assets/ducati_rear_e.c"
+        "${MOTO_REPOSITORY_ROOT}/shared/nav_ui/assets/fonts/ducati_label_18.c"
+        "${MOTO_REPOSITORY_ROOT}/shared/nav_ui/assets/fonts/ducati_label_22.c"
+        "${MOTO_REPOSITORY_ROOT}/shared/nav_ui/assets/fonts/ducati_readout_32.c"
+        "${MOTO_REPOSITORY_ROOT}/shared/nav_ui/assets/fonts/ducati_readout_56.c"
+        "${MOTO_REPOSITORY_ROOT}/shared/nav_ui/assets/fonts/ducati_readout_88.c"
         "${MOTO_SHARED_UI_SOURCE}"
     INCLUDE_DIRS
         "."
@@ -29,6 +35,7 @@ idf_component_register(
         "${MOTO_REPOSITORY_ROOT}/shared/ble_protocol/include"
         "${MOTO_REPOSITORY_ROOT}/shared/nav_presenter/include"
         "${MOTO_SHARED_UI_INCLUDE}"
+        "${MOTO_REPOSITORY_ROOT}/shared/nav_ui/assets"
     REQUIRES
         esp_timer
         esp_driver_gpio

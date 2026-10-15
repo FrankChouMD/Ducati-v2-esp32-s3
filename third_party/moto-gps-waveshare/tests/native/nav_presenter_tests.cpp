@@ -228,7 +228,7 @@ void test_heading_up_route_projection_keeps_rider_fixed() {
   CHECK(state.route_point_count == 2);
   constexpr int rider_x = MOTO_UI_CANVAS_WIDTH / 2;
   constexpr int rider_y =
-      (196 * MOTO_UI_CANVAS_HEIGHT + 180) / 360;
+      ((MOTO_UI_SQUARE_SCREEN ? 318 : 196) * MOTO_UI_CANVAS_HEIGHT + 180) / 360;
   CHECK(state.route_points[0].x == rider_x);
   CHECK(state.route_points[0].y == rider_y);
   // Facing east means an eastbound route is drawn straight ahead/up while
@@ -254,7 +254,7 @@ void test_non_finite_heading_keeps_map_projection_finite() {
   CHECK(state.route_point_count == 2);
   constexpr int rider_x = MOTO_UI_CANVAS_WIDTH / 2;
   constexpr int rider_y =
-      (196 * MOTO_UI_CANVAS_HEIGHT + 180) / 360;
+      ((MOTO_UI_SQUARE_SCREEN ? 318 : 196) * MOTO_UI_CANVAS_HEIGHT + 180) / 360;
   CHECK(state.route_points[0].x == rider_x);
   CHECK(state.route_points[0].y == rider_y);
 }
@@ -457,6 +457,29 @@ void test_presenter_owns_road_name_storage() {
   CHECK(presenter.ui_state().next_road_name == nullptr);
 }
 
+void test_lean_validity_does_not_fabricate_zero_or_pass_nan() {
+  NavPresenter presenter;
+  NavSnapshot snapshot;
+  CHECK(!presenter.ui_state().lean_valid);
+  snapshot.lean_valid = true;
+  snapshot.lean_deg = -26.5F;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().lean_valid);
+  CHECK(presenter.ui_state().lean_deg == -26.5F);
+  snapshot.lean_deg = std::numeric_limits<float>::quiet_NaN();
+  presenter.update(snapshot);
+  CHECK(!presenter.ui_state().lean_valid);
+  snapshot.lean_deg = 91.0F;
+  presenter.update(snapshot);
+  CHECK(!presenter.ui_state().lean_valid);
+  snapshot.lean_deg = 0.0F;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().lean_valid);
+  snapshot.lean_valid = false;
+  presenter.update(snapshot);
+  CHECK(!presenter.ui_state().lean_valid);
+}
+
 #ifdef MOTO_NAV_UI_TEST_STUB
 void test_apply_to_lvgl_uses_last_owned_state() {
   moto::test::reset_nav_ui_probe();
@@ -493,6 +516,7 @@ int main() {
   test_map_scale_does_not_jump_at_maneuver_distance_thresholds();
   test_missing_or_incomplete_geometry_stays_empty();
   test_presenter_owns_road_name_storage();
+  test_lean_validity_does_not_fabricate_zero_or_pass_nan();
 #ifdef MOTO_NAV_UI_TEST_STUB
   test_apply_to_lvgl_uses_last_owned_state();
 #endif

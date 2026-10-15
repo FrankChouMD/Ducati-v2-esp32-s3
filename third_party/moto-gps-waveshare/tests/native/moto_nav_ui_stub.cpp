@@ -31,6 +31,8 @@ extern "C" void moto_nav_ui_set_state(const moto_ui_state_t* state) {
 }
 
 extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t*) {}
+extern "C" void moto_nav_ui_set_lean_calibration_callback(
+    moto_lean_calibration_callback_t, void*) {}
 extern "C" void moto_nav_ui_set_phone_connection(
     moto_ui_phone_connection_t) {}
 

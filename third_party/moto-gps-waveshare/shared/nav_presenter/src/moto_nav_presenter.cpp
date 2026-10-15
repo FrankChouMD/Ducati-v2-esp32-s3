@@ -13,12 +13,13 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kLegacyCanvasSize = 360.0;
 constexpr double kUiScale =
     static_cast<double>(MOTO_UI_CANVAS_WIDTH) / kLegacyCanvasSize;
-constexpr double kVehicleX = MOTO_UI_CANVAS_WIDTH / 2.0;
-constexpr double kVehicleY = 196.0 * kUiScale;
+constexpr double kVehicleX = MOTO_UI_NAV_VEHICLE_X;
+constexpr double kVehicleY = MOTO_UI_NAV_VEHICLE_Y;
 // A navigation minimap is a spatial frame of reference, so it must not jump
 // between zoom levels as a maneuver counter crosses an arbitrary threshold.
 // This fixed street-scale view shows roughly 400 m ahead on the 466 px round
-// display and is shared by the selected route and all context roads.
+// display and is shared by the selected route and all context roads. The square
+// display moves this origin lower, increasing the visible forward range.
 constexpr double kMapPixelsPerMeter = 0.44 * kUiScale;
 
 double radians(double degrees) { return degrees * kPi / 180.0; }
@@ -348,6 +349,9 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
       static_cast<double>(snapshot.speed_mps) * 3.6);
   ui_state_.speed_limit_kph = snapshot.speed_limit_kph;
   ui_state_.heading_deg = normalized_heading(snapshot.heading_deg);
+  ui_state_.lean_valid = snapshot.lean_valid && std::isfinite(snapshot.lean_deg) &&
+                         std::abs(snapshot.lean_deg) <= 90.0F;
+  ui_state_.lean_deg = ui_state_.lean_valid ? snapshot.lean_deg : 0.0F;
   // Route, roads and buildings share one rider-centred transform. Besides
   // guaranteeing exact layer alignment, this avoids repeating trigonometry
   // hundreds of times on every high-rate IMU frame.

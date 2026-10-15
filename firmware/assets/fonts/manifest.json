@@ -1,0 +1,50 @@
+{
+  "family": "Barlow Condensed",
+  "copyright": "2017 The Barlow Project Authors",
+  "license": "SIL Open Font License 1.1",
+  "converter": "lv_font_conv 1.5.3",
+  "google_fonts_commit": "89f5431ff0db41bd2fe3f7ba21a723a01622428b",
+  "source_sha256": {
+    "BarlowCondensed-Medium.ttf": "262bd143292ce479ee0cd09a42b47ab173fca8e9c6eb5ed0b5c8a845bc371d17",
+    "BarlowCondensed-SemiBoldItalic.ttf": "dc83cbbb7545a117ab9e4c10ed07d35eef6f563b77621a1d357f25a3194987d1",
+    "OFL.txt": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f"
+  },
+  "outputs": [
+    {
+      "file": "third_party/moto-gps-waveshare/shared/nav_ui/assets/fonts/ducati_label_18.c",
+      "size_px": 18,
+      "glyph_range": "0x20-0x7e,0xb0",
+      "source": "BarlowCondensed-Medium.ttf",
+      "sha256": "e0596faa20b7337a4026e30d87fef4a25b38a43d0b7502a6c594eaa552262ed8"
+    },
+    {
+      "file": "third_party/moto-gps-waveshare/shared/nav_ui/assets/fonts/ducati_label_22.c",
+      "size_px": 22,
+      "glyph_range": "0x20-0x7e,0xb0",
+      "source": "BarlowCondensed-Medium.ttf",
+      "sha256": "447779d174adb4a715ac432229af5c756f71ea4a89f3696950d42adc3208f6b1"
+    },
+    {
+      "file": "third_party/moto-gps-waveshare/shared/nav_ui/assets/fonts/ducati_readout_32.c",
+      "size_px": 32,
+      "glyph_range": "0x20-0x7e,0xb0",
+      "source": "BarlowCondensed-SemiBoldItalic.ttf",
+      "sha256": "b67d446d5ad70dd9acd2c61282d865b8f7fd9445d309ac416b504ec149966dce"
+    },
+    {
+      "file": "third_party/moto-gps-waveshare/shared/nav_ui/assets/fonts/ducati_readout_56.c",
+      "size_px": 56,
+      "glyph_range": "0x20,0x2b-0x2e,0x30-0x39,0x4c,0x52,0xb0",
+      "source": "BarlowCondensed-SemiBoldItalic.ttf",
+      "sha256": "fa600562c970a62c64193782a1599557a29fddb604d1284258c0c676722d30dc"
+    },
+    {
+      "file": "third_party/moto-gps-waveshare/shared/nav_ui/assets/fonts/ducati_readout_88.c",
+      "size_px": 88,
+      "glyph_range": "0x20,0x2b-0x2e,0x30-0x39,0xb0",
+      "source": "BarlowCondensed-SemiBoldItalic.ttf",
+      "sha256": "ac1229191706344411d16f8a37582da7f6ad7ebb196b0d82ae2eed9a6b955b4b"
+    }
+  ],
+  "header_sha256": "ce3a14c8e6526c2c60a09006ed2564be9026c0507823d2b5f0e8db4da1fa82f6"
+}

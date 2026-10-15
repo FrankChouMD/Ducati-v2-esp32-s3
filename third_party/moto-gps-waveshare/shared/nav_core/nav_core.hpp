@@ -76,6 +76,9 @@ struct NavSnapshot {
   Wgs84Point destination;
   float speed_mps = 0.0F;
   float heading_deg = 0.0F;
+  // Local device telemetry; not part of the phone's BLE wire format.
+  float lean_deg = 0.0F;
+  bool lean_valid = false;
   float horizontal_accuracy_m = 0.0F;
   float cross_track_distance_m = 0.0F;
   std::uint16_t speed_limit_kph = 0;

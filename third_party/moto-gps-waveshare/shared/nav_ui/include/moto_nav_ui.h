@@ -15,6 +15,22 @@
 #ifndef MOTO_UI_CANVAS_HEIGHT
 #define MOTO_UI_CANVAS_HEIGHT 466
 #endif
+/* The 2.16 panel uses a square layout; the upstream round-panel default stays
+ * available to the 1.75C/Web targets. Select this independently of resolution. */
+#ifndef MOTO_UI_SQUARE_SCREEN
+#define MOTO_UI_SQUARE_SCREEN 0
+#endif
+
+/* Shared map origin: geographic projection and the vehicle contact point must
+ * use the same anchor. The square dashboard reserves its four corners for HUD. */
+#define MOTO_UI_NAV_VEHICLE_X (MOTO_UI_CANVAS_WIDTH / 2)
+#if MOTO_UI_SQUARE_SCREEN
+#define MOTO_UI_NAV_VEHICLE_Y ((318 * MOTO_UI_CANVAS_HEIGHT + 180) / 360)
+#define MOTO_UI_NAV_MAP_HEIGHT ((344 * MOTO_UI_CANVAS_HEIGHT + 180) / 360)
+#else
+#define MOTO_UI_NAV_VEHICLE_Y ((196 * MOTO_UI_CANVAS_HEIGHT + 180) / 360)
+#define MOTO_UI_NAV_MAP_HEIGHT ((232 * MOTO_UI_CANVAS_HEIGHT + 180) / 360)
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -112,6 +128,7 @@ typedef void (*moto_page_change_callback_t)(moto_ui_page_t page,
                                              void *context);
 typedef void (*moto_demo_change_callback_t)(uint8_t enabled,
                                              void *context);
+typedef void (*moto_lean_calibration_callback_t)(void *context);
 
 typedef struct {
     moto_ui_page_t page;
@@ -134,6 +151,9 @@ typedef struct {
     uint16_t speed_kph;
     uint16_t speed_limit_kph;
     uint16_t heading_deg;
+    /* Vehicle roll, positive right / negative left. Invalid until calibrated. */
+    float lean_deg;
+    uint8_t lean_valid;
     uint8_t route_point_count;
     moto_ui_point_t route_points[MOTO_UI_ROUTE_POINT_CAPACITY];
     uint8_t road_point_count;
@@ -156,8 +176,11 @@ void moto_nav_ui_show_boot_screen(void);
 /** Draw the final monochrome frame before the PMIC removes power. */
 void moto_nav_ui_show_power_off_screen(void);
 void moto_nav_ui_set_state(const moto_ui_state_t *state);
-/** Apply only high-rate route/heading motion to the currently visible page. */
+/** Apply high-rate route/heading motion and current lean to the visible page. */
 void moto_nav_ui_set_motion_state(const moto_ui_state_t *state);
+/** Long-press either lean readout to establish a new upright zero. */
+void moto_nav_ui_set_lean_calibration_callback(
+    moto_lean_calibration_callback_t callback, void *context);
 /** Drive the full-screen connection/ready lifecycle on the navigation page. */
 void moto_nav_ui_set_phone_connection(
     moto_ui_phone_connection_t connection);

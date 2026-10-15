@@ -291,6 +291,7 @@ void PhoneNavBridge::install_ui_callbacks() {
   moto_nav_ui_set_page_change_callback(page_changed, this);
   moto_nav_ui_set_music_command_callback(music_command, this);
   moto_nav_ui_set_demo_change_callback(demo_changed, this);
+  moto_nav_ui_set_lean_calibration_callback(lean_calibration_requested, this);
 }
 
 bool PhoneNavBridge::start_renderer() {
@@ -338,6 +339,7 @@ void PhoneNavBridge::on_link_state(bool active) {
       phone_snapshot.route_request_in_flight = false;
       phone_snapshot.traffic_request_in_flight = false;
       phone_snapshot.speed_mps = 0.0F;
+      lean_fusion_.set_speed(0.0F, monotonic_ms(), false);
       geometry_ = {};
       phone_snapshot.has_route_view = false;
       clear_map_context(phone_snapshot);
@@ -356,23 +358,43 @@ void PhoneNavBridge::on_link_state(bool active) {
 
 void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
                                    std::uint64_t sample_ms) {
+  // Preserve the heading-only test/adapter entry point.
+  MotionImuSample sample;
+  sample.heading_rate_dps = heading_rate_dps;
+  sample.sample_ms = sample_ms;
+  on_imu_sample(sample);
+}
+
+void PhoneNavBridge::on_imu_sample(const MotionImuSample& sample) {
   bool should_present = false;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
-    if (demo_active_ ||
-        !heading_fusion_.integrate(heading_rate_dps, sample_ms)) {
-      return;
-    }
-    snapshot_.heading_deg = heading_fusion_.heading_deg();
+    auto& local = phone_snapshot_locked();
+    const bool previous_valid = local.lean_valid;
+    const long previous_angle = std::lround(local.lean_deg * 10.0F);
+    if (sample.valid) last_imu_sample_ms_ = std::max(last_imu_sample_ms_, sample.sample_ms);
+    lean_fusion_.update(sample);
+    local.lean_valid = lean_fusion_.valid();
+    local.lean_deg = local.lean_valid ? lean_fusion_.lean_deg() : 0.0F;
+    lean_dirty_ |= previous_valid != local.lean_valid ||
+                    previous_angle != std::lround(local.lean_deg * 10.0F);
+    if (demo_active_) return;
+    const bool heading_changed = heading_fusion_.integrate(
+        sample.heading_rate_dps, sample.sample_ms);
+    if (heading_changed) snapshot_.heading_deg = heading_fusion_.heading_deg();
     // The QMI8658 runs at 125 Hz. Reproject at the display's unified 40 Hz
     // cadence; requests still coalesce if one physical refresh runs long.
-    if (sample_ms - last_motion_present_ms_ >= 25 &&
-        (snapshot_.has_route_view ||
-         snapshot_.display_page == moto::nav::DisplayPage::Compass)) {
+    const bool heading_visible = snapshot_.has_route_view ||
+        snapshot_.display_page == moto::nav::DisplayPage::Compass;
+    const bool lean_visible = snapshot_.display_page == moto::nav::DisplayPage::Navigation ||
+        snapshot_.display_page == moto::nav::DisplayPage::Speed;
+    if (sample.sample_ms >= last_motion_present_ms_ + 25U &&
+        ((heading_changed && heading_visible) || (lean_dirty_ && lean_visible))) {
       // Preserve the 25 ms phase. Setting this to sample_ms quantizes every
       // interval to four 8 ms samples (32 ms), silently reducing 40 to 31 Hz.
       last_motion_present_ms_ +=
-          ((sample_ms - last_motion_present_ms_) / 25U) * 25U;
+          ((sample.sample_ms - last_motion_present_ms_) / 25U) * 25U;
+      lean_dirty_ = false;
       should_present = true;
     }
   }
@@ -408,6 +430,9 @@ void PhoneNavBridge::fill_demo_snapshot(moto::nav::NavSnapshot& output,
   output.speed_mps = arrived ? 0.0F : static_cast<float>(
       kDemoSpeedMps + std::sin(phase_ms / 850.0) * 1.6);
   output.heading_deg = rider.heading_deg;
+  output.lean_valid = true;
+  output.lean_deg = arrived ? 0.0F : static_cast<float>(
+      std::sin(phase_ms / 1800.0) * 32.0);
   output.horizontal_accuracy_m = 3.2F;
   // A clearly visible demo-only value exercises the sign treatment. OSM road
   // geometry does not include a verified speed-limit value for this fixture.
@@ -468,15 +493,25 @@ void PhoneNavBridge::fill_demo_snapshot(moto::nav::NavSnapshot& output,
 }
 
 void PhoneNavBridge::update_demo(std::uint64_t now_ms) {
+  bool changed = false;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
-    if (!demo_active_) return;
-    const std::uint64_t elapsed_ms = now_ms >= demo_started_ms_
-                                         ? now_ms - demo_started_ms_
-                                         : 0;
-    fill_demo_snapshot(snapshot_, elapsed_ms);
+    if (demo_active_) {
+      const std::uint64_t elapsed_ms = now_ms >= demo_started_ms_
+                                           ? now_ms - demo_started_ms_ : 0;
+      fill_demo_snapshot(snapshot_, elapsed_ms);
+      changed = true;
+    } else if (snapshot_.lean_valid && now_ms > last_imu_sample_ms_ &&
+               now_ms - last_imu_sample_ms_ > 160U) {
+      // This existing 25 ms task is independent of I2C: it also catches a
+      // sensor read blocked in the driver, where no invalid callback can arrive.
+      lean_fusion_.reset();
+      snapshot_.lean_valid = false;
+      snapshot_.lean_deg = 0.0F;
+      changed = true;
+    }
   }
-  present_navigation();
+  if (changed) present_navigation();
 }
 
 void PhoneNavBridge::set_demo_active(bool active) {
@@ -639,6 +674,9 @@ void PhoneNavBridge::consume_navigation(
     phone_snapshot.now_ms = monotonic_ms();
     phone_snapshot.last_fix_ms =
         phone_snapshot.has_usable_fix ? phone_snapshot.now_ms : 0;
+    lean_fusion_.set_speed(phone_speed_mps, phone_snapshot.now_ms,
+                           has_usable_fix && !phone_snapshot.gnss_stale &&
+                           !is_ios_demo_route_token(input.route_token));
 
     char route_id[20]{};
     std::snprintf(route_id, sizeof(route_id), "ble-%08lx",
@@ -1021,6 +1059,18 @@ void PhoneNavBridge::music_command(moto_music_command_t command,
 
 void PhoneNavBridge::demo_changed(uint8_t enabled, void* context) {
   static_cast<PhoneNavBridge*>(context)->set_demo_active(enabled != 0U);
+}
+
+void PhoneNavBridge::lean_calibration_requested(void* context) {
+  auto* self = static_cast<PhoneNavBridge*>(context);
+  {
+    const std::lock_guard<std::mutex> lock(self->state_mutex_);
+    if (self->demo_active_) return;
+    self->lean_fusion_.request_zero();
+    self->snapshot_.lean_valid = false;
+    self->snapshot_.lean_deg = 0.0F;
+  }
+  self->present_navigation();
 }
 
 void PhoneNavBridge::send_page_command(moto_ui_page_t page) {

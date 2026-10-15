@@ -14,6 +14,7 @@
 | Ducati 盾标与启动画面素材 | 品牌标识保持原权利状态；SVG 来源页标注 PD-textlogo / 商标限制 | [素材及来源记录](firmware/assets/boot/README.md)、[原始 SVG](firmware/assets/boot/ducati-red-logo.svg) |
 | Source Han Sans SC 字体子集 | SIL OFL 1.1 | [许可正文](third_party/moto-gps-waveshare/LICENSES/SourceHanSansSC-OFL.txt) |
 | Montserrat 字体 | SIL OFL 1.1 | [许可正文](third_party/moto-gps-waveshare/LICENSES/Montserrat-OFL.txt) |
+| Barlow Condensed 1.408 仪表字体及 LVGL 子集，The Barlow Project Authors | SIL OFL 1.1 | [许可正文](firmware/assets/fonts/OFL.txt)、[来源与生成记录](firmware/assets/fonts/README.md) |
 | OpenStreetMap 地图数据、济南派生数据库及演示几何 | ODbL 1.0，© OpenStreetMap contributors | [原始署名](third_party/moto-gps-waveshare/shared/offline_map/ATTRIBUTION.txt)、[数据库和生成说明](third_party/moto-gps-waveshare/shared/offline_map/README.md) |
 
 OSM 署名与许可入口：[OpenStreetMap copyright](https://www.openstreetmap.org/copyright)。

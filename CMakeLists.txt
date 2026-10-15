@@ -13,6 +13,9 @@ add_compile_definitions(
     MOTO_UI_CANVAS_WIDTH=${DUCATI_CANVAS_SIZE}
     MOTO_UI_CANVAS_HEIGHT=${DUCATI_CANVAS_SIZE}
 )
+if(DUCATI_CANVAS_SIZE STREQUAL "480")
+    add_compile_definitions(MOTO_UI_SQUARE_SCREEN=1)
+endif()
 if(MSVC)
     add_compile_options(/utf-8)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX)
@@ -55,3 +58,15 @@ target_link_libraries(ducati_boot_animation PUBLIC lvgl)
 add_executable(boot_animation_render_tests tests/boot_animation_render_tests.cpp)
 target_link_libraries(boot_animation_render_tests PRIVATE ducati_boot_animation moto_nav_ui)
 add_test(NAME boot_animation_render_tests COMMAND boot_animation_render_tests)
+
+add_executable(motion_lean_fusion_tests tests/motion_lean_fusion_tests.cpp)
+target_include_directories(motion_lean_fusion_tests PRIVATE
+    "${MOTO_UPSTREAM_ROOT}/platforms/esp32/main")
+add_test(NAME motion_lean_fusion_tests COMMAND motion_lean_fusion_tests)
+
+if(WIN32)
+    add_executable(ducati_preview WIN32 tools/desktop_preview_win32.cpp)
+    target_compile_definitions(ducati_preview PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
+    target_link_libraries(ducati_preview PRIVATE ducati_boot_animation moto_nav_ui user32 gdi32)
+    add_test(NAME desktop_preview_self_test COMMAND ducati_preview --self-test)
+endif()

@@ -16,6 +16,8 @@ moto_music_command_callback_t music_callback = nullptr;
 void* music_callback_context = nullptr;
 moto_demo_change_callback_t demo_callback = nullptr;
 void* demo_callback_context = nullptr;
+moto_lean_calibration_callback_t lean_callback = nullptr;
+void* lean_callback_context = nullptr;
 int apply_count = 0;
 int board_lock_count = 0;
 bool board_lock_available = true;
@@ -102,6 +104,12 @@ extern "C" void moto_nav_ui_set_phone_connection(
 }
 
 extern "C" void moto_nav_ui_set_reduce_motion(uint8_t) {}
+extern "C" void moto_nav_ui_set_lean_calibration_callback(
+    moto_lean_calibration_callback_t callback, void* context) {
+  const std::lock_guard<std::mutex> lock(probe_mutex);
+  lean_callback = callback;
+  lean_callback_context = context;
+}
 extern "C" void moto_nav_ui_set_page(moto_ui_page_t) {}
 extern "C" moto_ui_page_t moto_nav_ui_get_page(void) {
   return MOTO_UI_PAGE_NAVIGATION;
@@ -221,6 +229,20 @@ void emit_demo_change(bool enabled) {
   if (callback == nullptr) return;
   const std::lock_guard<std::recursive_mutex> lock(board_mutex);
   callback(enabled ? 1U : 0U, context);
+}
+
+void emit_lean_calibration() {
+  moto_lean_calibration_callback_t callback = nullptr;
+  void* context = nullptr;
+  {
+    const std::lock_guard<std::mutex> lock(probe_mutex);
+    callback = lean_callback;
+    context = lean_callback_context;
+  }
+  if (callback) {
+    const std::lock_guard<std::recursive_mutex> lock(board_mutex);
+    callback(context);
+  }
 }
 
 int phone_nav_bridge_apply_count() {
