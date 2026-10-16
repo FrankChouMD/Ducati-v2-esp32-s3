@@ -46,6 +46,9 @@
       "minLength": 1,
       "maxLength": 64,
       "description": "Optional provider POI identifier selected by the user. The backend may use it to improve destination entrance routing."
+    },
+    "motorcycle_options": {
+      "$ref": "#/$defs/motorcycleOptions"
     }
   },
   "$defs": {
@@ -66,6 +69,80 @@
           "type": "number",
           "minimum": -90,
           "maximum": 90
+        }
+      }
+    },
+    "motorcycleOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "region",
+        "registration",
+        "avoid_highways",
+        "avoid_tolls",
+        "avoid_ferries",
+        "avoid_areas",
+        "waypoints"
+      ],
+      "properties": {
+        "region": {
+          "const": "nanjing"
+        },
+        "registration": {
+          "enum": [
+            "nanjing_suburban",
+            "nanjing_urban",
+            "non_nanjing",
+            "unknown"
+          ]
+        },
+        "avoid_highways": {
+          "type": "boolean"
+        },
+        "avoid_tolls": {
+          "type": "boolean"
+        },
+        "avoid_ferries": {
+          "type": "boolean"
+        },
+        "waypoints": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/wgs84Point"
+          }
+        },
+        "avoid_areas": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "points"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32
+              },
+              "points": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 16,
+                "items": {
+                  "$ref": "#/$defs/wgs84Point"
+                }
+              }
+            }
+          }
         }
       }
     }

@@ -14,8 +14,10 @@
 | Ducati 盾标与启动画面素材 | 品牌标识保持原权利状态；SVG 来源页标注 PD-textlogo / 商标限制 | [素材及来源记录](firmware/assets/boot/README.md)、[原始 SVG](firmware/assets/boot/ducati-red-logo.svg) |
 | Source Han Sans SC 字体子集 | SIL OFL 1.1 | [许可正文](third_party/moto-gps-waveshare/LICENSES/SourceHanSansSC-OFL.txt) |
 | Montserrat 字体 | SIL OFL 1.1 | [许可正文](third_party/moto-gps-waveshare/LICENSES/Montserrat-OFL.txt) |
-| Barlow Condensed 1.408 仪表字体及 LVGL 子集，The Barlow Project Authors | SIL OFL 1.1 | [许可正文](firmware/assets/fonts/OFL.txt)、[来源与生成记录](firmware/assets/fonts/README.md) |
-| OpenStreetMap 地图数据、济南派生数据库及演示几何 | ODbL 1.0，© OpenStreetMap contributors | [原始署名](third_party/moto-gps-waveshare/shared/offline_map/ATTRIBUTION.txt)、[数据库和生成说明](third_party/moto-gps-waveshare/shared/offline_map/README.md) |
+| Barlow Condensed 1.408 仪表字体、LVGL 子集及 iPhone UI 字体，The Barlow Project Authors | SIL OFL 1.1 | [许可正文](firmware/assets/fonts/OFL.txt)、[来源与生成记录](firmware/assets/fonts/README.md)、[iOS 字体及许可证副本](third_party/moto-gps-waveshare/platforms/ios/App/Fonts) |
+| OpenStreetMap 地图数据、济南派生数据库及演示几何、南京物理参考线 | ODbL 1.0，© OpenStreetMap contributors | [原始署名](third_party/moto-gps-waveshare/shared/offline_map/ATTRIBUTION.txt)、[济南数据库说明](third_party/moto-gps-waveshare/shared/offline_map/README.md)、[南京来源与提取说明](docs/research/NANJING_BOUNDARY_RESEARCH.md) |
+| 南京市政府禁外摩通告原始附图，未经修改的核对副本 | 保持原发布者权利状态，仓库软件许可证不重新授权 | [原图及来源记录](docs/research/NANJING_BOUNDARY_RESEARCH.md) |
+| 摩途官网南京禁外摩图层、保留边界的派生避让分区 | 来源为摩途公开网页；保留摩途原权利状态，根目录软件许可证不授予该数据的额外再分发权 | [固定快照](third_party/moto-gps-waveshare/shared/motorcycle/nanjing-motu-10255.v1.js)、[来源与处理记录](docs/NANJING_MOTORCYCLE_NAVIGATION.md) |
 
 OSM 署名与许可入口：[OpenStreetMap copyright](https://www.openstreetmap.org/copyright)。
 ODbL 正文：[Open Database License 1.0](https://opendatacommons.org/licenses/odbl/1-0/)。

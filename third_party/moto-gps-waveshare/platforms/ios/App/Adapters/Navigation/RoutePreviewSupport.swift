@@ -88,6 +88,10 @@ final class PreviewSelectedRouteProvider: NavigationRouteProviding, @unchecked S
         {
             return RouteEnvelope(requestID: request.requestID, route: selectedRoute)
         }
+        if shouldSupplySelectedRoute, selectedRoute.motorcycleAssessment != nil {
+            // A new origin must not silently replace the route the rider reviewed.
+            throw AmapGatewayError.motorcyclePreviewChanged
+        }
         return try await liveProvider.route(for: request)
     }
 

@@ -2,11 +2,14 @@ import Foundation
 import MotoNavigationCore
 
 /// Executes platform effects around the authoritative shared C++ NavApp/NavCore.
-/// It contains no route matching, maneuver progression, reroute or traffic policy.
+/// Road matching, maneuvers, reroute timing and traffic stay in NavCore. The
+/// phone tracks reached user waypoints only to form subsequent API requests.
 @MainActor
 final class SharedNavigationRuntime {
     var onSnapshot: ((MotoNavCoreSnapshot) -> Void)?
     var onFailure: ((String) -> Void)?
+    var onRouteAssessment: ((MotorcycleRouteAssessment?) -> Void)?
+    var onPolicyStopped: ((String) -> Void)?
 
     private let bridge = MotoNavCoreBridge()
     private let locationSource: any NavigationLocationSource
@@ -15,6 +18,8 @@ final class SharedNavigationRuntime {
     private var tickTask: Task<Void, Never>?
     private var activeRoute: ActiveRoute?
     private var destinationPOIID: String?
+    private let initialMotorcycleOptions: MotorcycleRouteOptions?
+    private var remainingMotorcycleOptions: MotorcycleRouteOptions?
 
     /// The accepted route may change after a reroute. Offline downloads must
     /// follow this geometry instead of the original route-preview candidate.
@@ -29,15 +34,18 @@ final class SharedNavigationRuntime {
 
     init(
         locationSource: any NavigationLocationSource,
-        routeProvider: any NavigationRouteProviding
+        routeProvider: any NavigationRouteProviding,
+        motorcycleOptions: MotorcycleRouteOptions? = nil
     ) {
         self.locationSource = locationSource
         self.routeProvider = routeProvider
+        self.initialMotorcycleOptions = motorcycleOptions
     }
 
     @discardableResult
     func start(destination: WGS84Point, destinationPOIID: String? = nil) -> Bool {
         stop()
+        remainingMotorcycleOptions = initialMotorcycleOptions
         self.destinationPOIID = destinationPOIID
         publish(bridge.reset())
         publish(bridge.setNetworkStateName("online"))
@@ -78,6 +86,7 @@ final class SharedNavigationRuntime {
         networkTasks.removeAll()
         activeRoute = nil
         destinationPOIID = nil
+        remainingMotorcycleOptions = nil
         publish(bridge.cancelNavigation())
     }
 
@@ -98,6 +107,7 @@ final class SharedNavigationRuntime {
     }
 
     private func accept(_ fix: NavigationFix) {
+        remainingMotorcycleOptions = remainingMotorcycleOptions?.advancingWaypoints(with: fix)
         let commands = bridge.pushFixLongitude(
             fix.coordinate.longitudeDeg,
             latitude: fix.coordinate.latitudeDeg,
@@ -133,7 +143,8 @@ final class SharedNavigationRuntime {
                     previousRouteID: bridge.snapshot.routeID.isEmpty
                         ? nil
                         : bridge.snapshot.routeID,
-                    destinationPOIID: destinationPOIID
+                    destinationPOIID: destinationPOIID,
+                    motorcycleOptions: remainingMotorcycleOptions
                 )
                 runRouteRequest(request)
 
@@ -157,7 +168,8 @@ final class SharedNavigationRuntime {
                     origin: activeRoute.origin,
                     destination: activeRoute.destination,
                     previousRouteID: activeRoute.plan.routeID,
-                    destinationPOIID: activeRoute.destinationPOIID
+                    destinationPOIID: activeRoute.destinationPOIID,
+                    motorcycleOptions: activeRoute.plan.motorcycleAssessment?.appliedOptions
                 )
                 runTrafficRequest(request, baseline: activeRoute)
 
@@ -189,16 +201,22 @@ final class SharedNavigationRuntime {
                         destination: request.destination,
                         destinationPOIID: request.destinationPOIID
                     )
+                    self.onRouteAssessment?(envelope.route.motorcycleAssessment)
                 }
                 self.publish(commands)
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
+                if let policyError = error as? AmapGatewayError, policyError.stopsMotorcycleGuidance {
+                    self?.stop() // Cancel old turn guidance and publish the cancelled BLE snapshot.
+                    self?.onPolicyStopped?(policyError.localizedDescription)
+                    return
+                }
                 self?.publish(
                     self?.bridge.rejectRouteRequestID(
                         request.requestID,
-                        retryable: true,
+                        retryable: (error as? AmapGatewayError)?.isRetryable ?? true,
                         receivedAtMs: Self.nowMs()
                     ) ?? []
                 )
@@ -254,6 +272,11 @@ final class SharedNavigationRuntime {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
+                if let policyError = error as? AmapGatewayError, policyError.stopsMotorcycleGuidance {
+                    self?.stop()
+                    self?.onPolicyStopped?(policyError.localizedDescription)
+                    return
+                }
                 self?.publish(
                     self?.bridge.rejectTrafficRequestID(
                         request.requestID,

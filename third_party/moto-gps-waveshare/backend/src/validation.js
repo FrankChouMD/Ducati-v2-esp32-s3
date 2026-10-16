@@ -1,3 +1,5 @@
+import { validateMotorcycleOptions } from "./motorcycle-policy.js";
+
 const REQUEST_KEYS = new Set([
   "protocol_version",
   "request_id",
@@ -7,6 +9,7 @@ const REQUEST_KEYS = new Set([
   "is_reroute",
   "previous_route_id",
   "destination_poi_id",
+  "motorcycle_options",
 ]);
 const POINT_KEYS = new Set(["coordinate_system", "longitude_deg", "latitude_deg"]);
 
@@ -96,5 +99,7 @@ export function validateRouteRequest(value) {
   }
   validateWgs84Point(value.origin, "origin");
   validateWgs84Point(value.destination, "destination");
+  if (value.motorcycle_options !== undefined) validateMotorcycleOptions(value.motorcycle_options);
   return value;
 }
+

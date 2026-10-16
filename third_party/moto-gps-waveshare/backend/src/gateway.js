@@ -176,6 +176,7 @@ export function createGateway({
           capabilities: {
             route_planning: providerMode === "amap",
             route_traffic: providerMode === "amap",
+            motorcycle_rules: typeof provider.motorcyclePolicyVersion === "string",
             // Route Planning v2 exposes neither legal road speed limits nor
             // live signal phases. API readiness must not imply those feeds.
             road_speed_limits: false,

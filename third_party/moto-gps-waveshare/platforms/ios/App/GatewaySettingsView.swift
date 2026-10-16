@@ -1,6 +1,7 @@
 import MotoNavigationCore
 import SwiftUI
 
+// Ducati V2 personal UI adaptation, 2026-10-16: shared dark form styling.
 struct GatewaySettingsView: View {
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -50,6 +51,8 @@ struct GatewaySettingsView: View {
                     Section { Text("请先结束导航，再更换网关地址。") }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .ducatiScreen()
             .navigationTitle("网关设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -79,7 +82,7 @@ struct GatewaySettingsView: View {
                 message = nil
             }
             .onDisappear { checkTask?.cancel() }
-        }
+        }.ducatiAppTheme()
     }
 
     private func checkConnection() {
@@ -107,12 +110,16 @@ struct GatewaySettingsView: View {
                 struct Health: Decodable {
                     let status: String
                     let ready_for_live_navigation: Bool
+                    let capabilities: Capabilities?
+                    struct Capabilities: Decodable { let motorcycle_rules: Bool? }
                 }
                 let health = try JSONDecoder().decode(Health.self, from: data)
                 guard health.status == "ok" else { throw URLError(.badServerResponse) }
                 try Task.checkCancellation()
                 message = health.ready_for_live_navigation
-                    ? "网关已连接，已启用实时导航配置。"
+                    ? (health.capabilities?.motorcycle_rules == true
+                        ? "网关已连接，已启用导航与南京骑行规则检查。"
+                        : "网关已连接，但不支持南京骑行规则，请先更新网关。")
                     : "网关已连接，但尚未启用实时导航。请检查服务端配置。"
             } catch {
                 guard !Task.isCancelled else { return }

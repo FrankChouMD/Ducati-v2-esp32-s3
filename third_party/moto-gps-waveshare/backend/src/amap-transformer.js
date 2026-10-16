@@ -172,7 +172,7 @@ function assertAmapSuccess(payload) {
     throw new AmapTransformError(
       `AMAP_${providerCode}`,
       `AMap route planning failed (${providerCode})`,
-      { retryable: providerCode.startsWith("10") === false },
+      { retryable: !providerCode.startsWith("10") && !["20000", "20001", "20002"].includes(providerCode) },
     );
   }
 }

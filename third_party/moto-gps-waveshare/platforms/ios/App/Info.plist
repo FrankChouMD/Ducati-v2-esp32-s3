@@ -42,6 +42,11 @@
 		<string>location</string>
 		<string>bluetooth-central</string>
 	</array>
+	<key>UIAppFonts</key>
+	<array>
+		<string>BarlowCondensed-Medium.ttf</string>
+		<string>BarlowCondensed-SemiBoldItalic.ttf</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

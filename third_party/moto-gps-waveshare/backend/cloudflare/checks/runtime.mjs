@@ -117,6 +117,66 @@ test("AMap rejection cannot fall back to a synthetic route or leak credentials",
   assert.equal(JSON.parse(text).route, undefined);
 });
 
+test("Nanjing motorcycle settings and forbidden reroutes use the same checked Worker provider", async (t) => {
+  let blocked = false;
+  const seen = [];
+  const mf = await runtime(t, { MOTO_PROVIDER: "amap", AMAP_WEB_SERVICE_KEY: "test", MOTO_MAP_PMTILES_URL: "disabled" }, request => {
+    const url = new URL(request.url); seen.push(url);
+    const payload = JSON.parse(routeFixture);
+    if (blocked) {
+      payload.route.paths[0].steps[0].road_name = "建宁路长江隧道";
+      payload.route.paths[0].steps[0].cities = [{adcode:"320100"}];
+    }
+    return Response.json(payload);
+  });
+  const body = {...routeRequest, motorcycle_options:{region:"nanjing",registration:"nanjing_suburban",
+    avoid_highways:true,avoid_tolls:false,avoid_ferries:false,avoid_areas:[],waypoints:[]}};
+  const result = await requestRoute(mf,"/v1/route-options",JSON.stringify(body));
+  assert.equal(result.status,200);
+  const data = await result.json();
+  assert.equal(data.routes[0].motorcycle_assessment.coverage,"partial");
+  assert.deepEqual(data.routes[0].motorcycle_assessment.applied_options,body.motorcycle_options);
+  assert.equal(seen[0].searchParams.get("strategy"),"40");
+  assert.equal(seen[0].searchParams.get("avoidpolygons").split("|").length,28);
+  assert.equal(data.routes[0].motorcycle_assessment.restriction_areas[0].polygon.length,124);
+  assert.equal(data.routes[0].motorcycle_assessment.camera_data_status,"unavailable");
+  blocked = true;
+  const reroute = await requestRoute(mf,"/v1/routes",JSON.stringify({...body,is_reroute:true,previous_route_id:"old"}));
+  assert.equal(reroute.status,503);
+  assert.equal((await reroute.json()).error.code,"MOTORCYCLE_ROUTE_BLOCKED");
+  assert.deepEqual(seen.slice(1).map(url=>url.searchParams.get("strategy")),["40","35"]);
+});
+
+test("Worker rejects Motu area conflicts before upstream and blocks crossing reroutes", async t => {
+  let crossing = false;
+  const seen = [];
+  const mf = await runtime(t, { MOTO_PROVIDER:"amap",AMAP_WEB_SERVICE_KEY:"test",MOTO_MAP_PMTILES_URL:"disabled" }, req => {
+    seen.push(new URL(req.url));
+    const payload = JSON.parse(routeFixture);
+    const path = payload.route.paths[0];
+    path.steps = [{...path.steps[0],road_name:"未命名道路",
+      polyline:crossing ? "118.6,31.9;118.8,32.05;119.0,31.9" : "118.6,31.9;119.0,31.9"}];
+    return Response.json(payload);
+  });
+  const body = {...routeRequest,origin:{coordinate_system:"WGS84",longitude_deg:118.6,latitude_deg:31.9},
+    destination:{coordinate_system:"WGS84",longitude_deg:119,latitude_deg:31.9},
+    motorcycle_options:{region:"nanjing",registration:"nanjing_suburban",avoid_highways:true,
+      avoid_tolls:false,avoid_ferries:false,avoid_areas:[],waypoints:[]}};
+  const conflict = await requestRoute(mf,"/v1/routes",JSON.stringify({...body,
+    destination:{coordinate_system:"WGS84",longitude_deg:118.8,latitude_deg:32.05}}));
+  assert.equal((await conflict.json()).error.code,"MOTORCYCLE_AREA_CONFLICT");
+  assert.equal(seen.length,0);
+  const initial = await requestRoute(mf,"/v1/route-options",JSON.stringify(body));
+  assert.equal(initial.status,200);
+  const assessment = (await initial.json()).routes[0].motorcycle_assessment;
+  assert.equal(assessment.restriction_areas[0].applies_to_registration,true);
+  crossing = true;
+  const reroute = await requestRoute(mf,"/v1/routes",JSON.stringify({...body,is_reroute:true,previous_route_id:"old"}));
+  assert.equal((await reroute.json()).error.code,"MOTORCYCLE_ROUTE_BLOCKED");
+  assert.equal(seen.length,3);
+  assert.ok(seen.every(url=>url.searchParams.get("avoidpolygons")===seen[0].searchParams.get("avoidpolygons")));
+});
+
 test("missing live key fails closed", async (t) => {
   const mf = await runtime(t, { MOTO_PROVIDER: "amap" });
   const response = await mf.dispatchFetch("https://gateway.test/healthz");

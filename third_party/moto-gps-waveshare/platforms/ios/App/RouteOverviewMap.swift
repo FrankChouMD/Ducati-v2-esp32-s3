@@ -2,6 +2,7 @@ import MapKit
 import MotoNavigationCore
 import SwiftUI
 
+// Ducati V2 personal UI adaptation, 2026-10-16: dark map and red route accents.
 struct RouteOverviewMap: UIViewRepresentable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -9,6 +10,10 @@ struct RouteOverviewMap: UIViewRepresentable {
     let selectedID: String?
     let origin: WGS84Point?
     let destination: WGS84Point
+
+    private var restrictionAreas: [MotorcycleRestrictionArea] {
+        candidates.first(where: { $0.id == selectedID })?.route.motorcycleAssessment?.restrictionAreas ?? []
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -24,6 +29,7 @@ struct RouteOverviewMap: UIViewRepresentable {
             coordinator?.refreshRouteAppearance(on: mapView)
         }
         mapView.mapType = .mutedStandard
+        mapView.overrideUserInterfaceStyle = .dark
         mapView.pointOfInterestFilter = .excludingAll
         mapView.showsCompass = false
         mapView.showsScale = false
@@ -42,12 +48,24 @@ struct RouteOverviewMap: UIViewRepresentable {
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.selectedID = selectedID
         let signature = candidates.map(\.id).joined(separator: "|") +
-            "::" + (selectedID ?? "")
+            "::" + (selectedID ?? "") + "::" + restrictionAreas.map {
+                "\($0.id):\($0.dataVersion):\($0.appliesToRegistration)"
+            }.joined(separator: "|")
         guard context.coordinator.signature != signature else { return }
         context.coordinator.signature = signature
 
         mapView.removeOverlays(mapView.overlays)
         mapView.removeAnnotations(mapView.annotations)
+
+        for area in restrictionAreas where area.isValid {
+            let coordinates = area.polygon.map { point in
+                let wgs84 = ChinaCoordinateTransform.gcj02ToWGS84(point)
+                return CLLocationCoordinate2D(latitude: wgs84.latitudeDeg, longitude: wgs84.longitudeDeg)
+            }
+            let polygon = MKPolygon(coordinates: coordinates, count: coordinates.count)
+            polygon.title = area.appliesToRegistration ? "motu-active" : "motu-reference"
+            mapView.addOverlay(polygon, level: .aboveRoads)
+        }
 
         let ordered = candidates.sorted { lhs, rhs in
             (lhs.id == selectedID ? 1 : 0) < (rhs.id == selectedID ? 1 : 0)
@@ -112,6 +130,15 @@ struct RouteOverviewMap: UIViewRepresentable {
         var hasPresentedRoute = false
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let polygon = overlay as? MKPolygon {
+                let renderer = MKPolygonRenderer(polygon: polygon)
+                let active = polygon.title == "motu-active"
+                let color = active ? UIColor(red: 1, green: 0.64, blue: 0.16, alpha: 1) : UIColor.gray
+                renderer.fillColor = color.withAlphaComponent(active ? 0.18 : 0.08)
+                renderer.strokeColor = color.withAlphaComponent(0.85)
+                renderer.lineWidth = 1.5
+                return renderer
+            }
             guard let polyline = overlay as? MKPolyline else {
                 return MKOverlayRenderer(overlay: overlay)
             }
@@ -138,7 +165,9 @@ struct RouteOverviewMap: UIViewRepresentable {
             traits: UITraitCollection
         ) {
             let isSelected = polyline.title == selectedID
-            let color: UIColor = isSelected ? .systemBlue : .systemGray
+            let color = isSelected
+                ? UIColor(red: 232.0 / 255, green: 0, blue: 22.0 / 255, alpha: 1)
+                : UIColor(white: 0.58, alpha: 1)
             renderer.strokeColor = color.resolvedColor(with: traits)
             renderer.lineWidth = isSelected ? 7 : 5
             renderer.lineCap = .round
@@ -152,7 +181,8 @@ struct RouteOverviewMap: UIViewRepresentable {
                 ?? MKMarkerAnnotationView(annotation: point, reuseIdentifier: identifier)
             view.annotation = point
             let isStart = point.subtitle == "moto-start"
-            view.markerTintColor = isStart ? .systemBlue : .systemRed
+            view.markerTintColor = isStart ? .darkGray
+                : UIColor(red: 232.0 / 255, green: 0, blue: 22.0 / 255, alpha: 1)
             view.glyphImage = UIImage(systemName: isStart ? "location.fill" : "flag.fill")
             view.glyphTintColor = .white
             view.subtitleVisibility = .hidden

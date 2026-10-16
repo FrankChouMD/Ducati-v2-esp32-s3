@@ -9,6 +9,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var navigationFailure: String?
     @Published private(set) var isNavigationActive = false
     @Published private(set) var isDemoActive = false
+    @Published private(set) var ridingOptions: MotorcycleRouteOptions
+    @Published var ridingReviewConfirmed = false
+    @Published private(set) var activeMotorcycleAssessment: MotorcycleRouteAssessment?
 
     @Published var destinationQuery = ""
     @Published private(set) var placeResults: [PlaceSearchResult] = []
@@ -37,11 +40,14 @@ final class AppModel: ObservableObject {
     private var routePreviewTask: Task<Void, Never>?
     private var routePreviewRequestID: UInt32 = 1
     private var routePreviewGeneration: UInt64 = 0
+    private var routePreviewReceivedUptime: TimeInterval?
 
     private static let recentPlacesKey = "MotoGPS.RecentPlaces.v1"
 
     init(gatewayBaseURL: URL = AppConfiguration.gatewayBaseURL) {
-        liveRouteProvider = AmapGatewayRouteProvider(baseURL: gatewayBaseURL)
+        let ridingOptions = MotorcyclePreferenceStore.load()
+        self.ridingOptions = ridingOptions
+        liveRouteProvider = AmapGatewayRouteProvider(baseURL: gatewayBaseURL, motorcycleOptions: ridingOptions)
         placeProvider = AmapGatewayPlaceProvider(baseURL: gatewayBaseURL)
         mapGatewayBaseURL = gatewayBaseURL
         surroundingMap = SurroundingMapStore(baseURL: gatewayBaseURL)
@@ -137,7 +143,7 @@ final class AppModel: ObservableObject {
         defer { isUpdatingGateway = false }
         clearDestination()
         await surroundingMap.changeGateway(to: url)
-        liveRouteProvider = AmapGatewayRouteProvider(baseURL: url)
+        liveRouteProvider = AmapGatewayRouteProvider(baseURL: url, motorcycleOptions: ridingOptions)
         placeProvider = AmapGatewayPlaceProvider(baseURL: url)
         mapGatewayBaseURL = url
         try GatewayConfiguration.save(url.absoluteString)
@@ -153,7 +159,17 @@ final class AppModel: ObservableObject {
     /// Navigation can start before BLE is ready. The central retains the newest
     /// snapshot and synchronizes it when the round display reconnects.
     var canStartNavigation: Bool {
-        selectedPlace != nil && selectedRoutePreview != nil && !isPlanningRoutePreview
+        selectedPlace != nil && selectedRoutePreview?.route.motorcycleAssessment?.matches(ridingOptions) == true &&
+            ridingReviewConfirmed && !isPlanningRoutePreview
+    }
+
+    func saveRidingOptions(_ options: MotorcycleRouteOptions) throws {
+        guard !isNavigationActive, !isUpdatingGateway else { throw MotorcyclePreferenceError.navigationActive }
+        try MotorcyclePreferenceStore.save(options)
+        ridingOptions = options
+        ridingReviewConfirmed = false
+        liveRouteProvider = AmapGatewayRouteProvider(baseURL: mapGatewayBaseURL, motorcycleOptions: options)
+        if selectedPlace != nil { planRoutePreview() }
     }
 
     var selectedRoutePreview: RoutePreviewCandidate? {
@@ -316,9 +332,20 @@ final class AppModel: ObservableObject {
             navigationFailure = "请先完成路线规划并选择一条路线"
             return
         }
+        guard canStartNavigation else {
+            navigationFailure = "请先阅读规则覆盖范围，并核对本次路线后确认。"
+            return
+        }
         guard let routePreviewOrigin else {
             navigationFailure = "路线起点已失效，请重新规划路线"
             planRoutePreview()
+            return
+        }
+        // Use local monotonic receipt time; phone and gateway clocks can differ.
+        guard let receivedAt = routePreviewReceivedUptime,
+              (0 ... 120).contains(ProcessInfo.processInfo.systemUptime - receivedAt) else {
+            planRoutePreview()
+            navigationFailure = "路线预览已过期，已重新规划，请再次核对后出发。"
             return
         }
 
@@ -332,11 +359,13 @@ final class AppModel: ObservableObject {
                 selectedRoute: selectedRoutePreview.route,
                 selectedRouteOrigin: routePreviewOrigin,
                 liveProvider: liveRouteProvider
-            )
+            ),
+            motorcycleOptions: ridingOptions
         )
         bind(runtime)
         self.runtime = runtime
         isDemoActive = false
+        activeMotorcycleAssessment = selectedRoutePreview.route.motorcycleAssessment
         navigationFailure = nil
         let started = runtime.start(
             destination: selectedPlace.location,
@@ -356,7 +385,7 @@ final class AppModel: ObservableObject {
         let runtime = SharedNavigationRuntime(
             locationSource: DemoNavigationLocationSource(session: demoSession),
             routeProvider: DemoNavigationRouteProvider(
-                liveProvider: liveRouteProvider,
+                liveProvider: AmapGatewayRouteProvider(baseURL: mapGatewayBaseURL),
                 session: demoSession
             )
         )
@@ -364,6 +393,7 @@ final class AppModel: ObservableObject {
         self.runtime = runtime
         navigationFailure = nil
         isDemoActive = true
+        activeMotorcycleAssessment = nil
         let started = runtime.start(
             destination: JinanDemoFixture.requestedDestinationWGS84,
             destinationPOIID: JinanDemoFixture.destinationPOIID
@@ -380,6 +410,7 @@ final class AppModel: ObservableObject {
         runtime = nil
         isNavigationActive = false
         isDemoActive = false
+        activeMotorcycleAssessment = nil
         navigationFailure = nil
         surroundingMap.reset()
         // Ending navigation used to leave selectedPlace set, so the app stuck
@@ -390,6 +421,7 @@ final class AppModel: ObservableObject {
 
     func selectRoutePreview(_ id: String) {
         guard routePreviewCandidates.contains(where: { $0.id == id }) else { return }
+        if selectedRoutePreviewID != id { ridingReviewConfirmed = false }
         selectedRoutePreviewID = id
         navigationFailure = nil
     }
@@ -400,6 +432,8 @@ final class AppModel: ObservableObject {
             failRoutePreview("请先在网关设置中填写服务地址")
             return
         }
+        ridingReviewConfirmed = false
+        routePreviewReceivedUptime = nil
         routePreviewGeneration &+= 1
         routePreviewTask?.cancel()
         routePreviewTask = nil
@@ -428,6 +462,18 @@ final class AppModel: ObservableObject {
     }
 
     private func bind(_ runtime: SharedNavigationRuntime) {
+        runtime.onRouteAssessment = { [weak self] assessment in self?.activeMotorcycleAssessment = assessment }
+        runtime.onPolicyStopped = { [weak self] message in
+            guard let self else { return }
+            self.isNavigationActive = false
+            self.isDemoActive = false
+            self.runtime = nil
+            self.surroundingMap.reset()
+            self.activeMotorcycleAssessment = nil
+            self.ridingReviewConfirmed = false
+            self.failRoutePreview(message)
+            self.navigationFailure = nil
+        }
         runtime.onSnapshot = { [weak self] snapshot in
             self?.navigation = snapshot
             if snapshot.stateName == "navigating" || snapshot.stateName == "arrived" {
@@ -487,18 +533,20 @@ final class AppModel: ObservableObject {
                 self.routePreviewCandidates = candidates
                 self.selectedRoutePreviewID = first.id
                 self.routePreviewOrigin = origin
+                self.routePreviewReceivedUptime = ProcessInfo.processInfo.systemUptime
                 self.routePreviewFailure = nil
                 self.isPlanningRoutePreview = false
             } catch is CancellationError {
                 return
             } catch {
                 guard let self, !Task.isCancelled else { return }
-                self.failRoutePreview("路线规划失败，请检查网络后重试")
+                self.failRoutePreview((error as? AmapGatewayError)?.localizedDescription ?? "路线规划失败，请检查网络后重试")
             }
         }
     }
 
     private func failRoutePreview(_ message: String) {
+        routePreviewReceivedUptime = nil
         routePreviewTask?.cancel()
         routePreviewTask = nil
         routePreviewCandidates = []
@@ -509,6 +557,8 @@ final class AppModel: ObservableObject {
     }
 
     private func clearRoutePreviewState() {
+        routePreviewReceivedUptime = nil
+        ridingReviewConfirmed = false
         routePreviewGeneration &+= 1
         routePreviewTask?.cancel()
         routePreviewTask = nil

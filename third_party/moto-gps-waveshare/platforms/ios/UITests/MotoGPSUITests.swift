@@ -144,7 +144,7 @@ final class MotoGPSUITests: XCTestCase {
 
         let start = app.buttons["primary-navigation-action"]
         XCTAssertTrue(start.waitForExistence(timeout: 3))
-        XCTAssertTrue(start.isEnabled)
+        XCTAssertFalse(start.isEnabled)
 
         try tapSystemBack(in: app)
         XCTAssertTrue(app.staticTexts["最近搜索"].waitForExistence(timeout: 3))
@@ -173,6 +173,8 @@ final class MotoGPSUITests: XCTestCase {
         // alone must remain a preview, including when no round screen is paired.
         let start = app.buttons["primary-navigation-action"]
         XCTAssertTrue(start.waitForExistence(timeout: 3))
+        XCTAssertFalse(start.isEnabled)
+        confirmRidingReview(in: app)
         XCTAssertTrue(start.isEnabled)
         refreshTestLocation()
         start.tap()
@@ -368,6 +370,17 @@ final class MotoGPSUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func confirmRidingReview(in app: XCUIApplication) {
+        let review = app.switches["riding-route-reviewed"]
+        XCTAssertTrue(review.waitForExistence(timeout: 5))
+        for _ in 0 ..< 8 {
+            if review.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(review.isHittable)
+        review.tap()
     }
 
     private func tapSystemBack(in app: XCUIApplication) throws {

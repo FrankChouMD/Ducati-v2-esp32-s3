@@ -89,7 +89,7 @@ final class AmapGatewayPlaceProvider: @unchecked Sendable {
             if let failure = try? decoder.decode(PlaceGatewayFailureEnvelope.self, from: data) {
                 throw AmapGatewayError.rejected(
                     code: failure.error.code,
-                    message: failure.error.message
+                    message: failure.error.message, retryable: true
                 )
             }
             throw AmapGatewayError.invalidResponse

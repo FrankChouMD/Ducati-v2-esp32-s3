@@ -3,6 +3,7 @@ import Foundation
 import MapKit
 import MotoNavigationCore
 import SwiftUI
+// Ducati V2 personal UI adaptation, 2026-10-16: dark maps and shared colors.
 
 struct SurroundingMapStatusRow: View {
     @ObservedObject var store: SurroundingMapStore
@@ -98,7 +99,7 @@ struct MapDownloadsView: View {
                             Text("自动加载周边地图")
                             Text(store.statusText).font(.subheadline).foregroundStyle(.secondary)
                         }
-                    } icon: { Image(systemName: "network").foregroundStyle(.blue) }
+                    } icon: { Image(systemName: "network").foregroundStyle(DucatiTheme.accent) }
                 } footer: {
                     Text("骑行时自动加载圆屏周边的道路和建筑。网络不可用时，使用已下载的地图。")
                 }
@@ -140,7 +141,7 @@ struct MapDownloadsView: View {
                                 Text(pack.name).font(.headline)
                                 Spacer()
                                 Image(systemName: pack.isComplete ? "checkmark.circle.fill" : "pause.circle")
-                                    .foregroundStyle(pack.isComplete ? Color.green : Color.secondary)
+                                    .foregroundStyle(pack.isComplete ? DucatiTheme.ready : DucatiTheme.secondary)
                             }
                             Text(pack.detail).font(.subheadline).foregroundStyle(.secondary)
                             Text("\(ByteCountFormatter.string(fromByteCount: pack.byteCount, countStyle: .file)) · \(pack.isComplete ? "已下载" : "尚未下载完成")")
@@ -169,7 +170,7 @@ struct MapDownloadsView: View {
                     Link("Protomaps 地图数据", destination: URL(string: "https://protomaps.com")!)
                 } footer: { Text("建筑和道路的完整程度取决于当地地图数据。") }
             }
-            .listStyle(.insetGrouped)
+            .ducatiList()
             .navigationTitle("地图")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -178,7 +179,7 @@ struct MapDownloadsView: View {
                 }
             }
             .accessibilityIdentifier("map-downloads-sheet")
-        }
+        }.ducatiAppTheme()
     }
 
     private func downloadRoute() {
@@ -233,6 +234,7 @@ private struct MapCitySearchView: View {
                 }
             }
         }
+        .ducatiList()
         .navigationTitle("下载城市地图")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $search.query, prompt: "搜索城市或区县")
@@ -251,8 +253,8 @@ private struct MapCityDownloadView: View {
             Section {
                 Map(initialPosition: .region(region)) {
                     MapPolygon(coordinates: corners)
-                        .foregroundStyle(.blue.opacity(0.1))
-                        .stroke(.blue, lineWidth: 2)
+                        .foregroundStyle(DucatiTheme.accent.opacity(0.12))
+                        .stroke(DucatiTheme.accent, lineWidth: 2)
                 }
                 .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll))
                 .frame(height: 260)
@@ -260,7 +262,7 @@ private struct MapCityDownloadView: View {
                 .accessibilityLabel("\(city.name)离线地图下载范围")
                 LabeledContent("下载区域", value: city.detail)
             } footer: {
-                Text("蓝框内的道路和建筑将保存在手机。范围覆盖所选城市或区县，边缘可能包括部分相邻地区。")
+                Text("红框内的道路和建筑将保存在手机。范围覆盖所选城市或区县，边缘可能包括部分相邻地区。")
             }
             Section {
                 if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
@@ -274,6 +276,7 @@ private struct MapCityDownloadView: View {
             }
             downloadStatus(store)
         }
+        .ducatiList()
         .navigationTitle(city.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {

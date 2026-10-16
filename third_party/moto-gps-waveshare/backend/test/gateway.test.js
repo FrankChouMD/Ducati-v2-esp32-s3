@@ -48,6 +48,7 @@ test("exposes live readiness and provider-neutral place search", async (t) => {
   assert.deepEqual(health.capabilities, {
     route_planning: true,
     route_traffic: true,
+    motorcycle_rules: false,
     road_speed_limits: false,
     traffic_light_countdown: false,
     surrounding_map: false,

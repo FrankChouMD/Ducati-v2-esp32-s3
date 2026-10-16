@@ -77,6 +77,7 @@ public struct RouteRequest: Codable, Equatable, Sendable {
     public let isReroute: Bool
     public let previousRouteID: String?
     public let destinationPOIID: String?
+    public let motorcycleOptions: MotorcycleRouteOptions?
 
     public init(
         requestID: UInt32,
@@ -84,7 +85,8 @@ public struct RouteRequest: Codable, Equatable, Sendable {
         destination: WGS84Point,
         isReroute: Bool = false,
         previousRouteID: String? = nil,
-        destinationPOIID: String? = nil
+        destinationPOIID: String? = nil,
+        motorcycleOptions: MotorcycleRouteOptions? = nil
     ) {
         protocolVersion = 1
         self.requestID = requestID
@@ -94,6 +96,7 @@ public struct RouteRequest: Codable, Equatable, Sendable {
         self.isReroute = isReroute
         self.previousRouteID = previousRouteID
         self.destinationPOIID = destinationPOIID
+        self.motorcycleOptions = motorcycleOptions
     }
 
     enum CodingKeys: String, CodingKey {
@@ -105,6 +108,7 @@ public struct RouteRequest: Codable, Equatable, Sendable {
         case isReroute = "is_reroute"
         case previousRouteID = "previous_route_id"
         case destinationPOIID = "destination_poi_id"
+        case motorcycleOptions = "motorcycle_options"
     }
 }
 
@@ -195,6 +199,7 @@ public struct RoutePlan: Codable, Equatable, Sendable {
     public let polyline: [GCJ02Point]
     public let maneuvers: [RouteManeuver]
     public let traffic: [TrafficSegment]
+    public let motorcycleAssessment: MotorcycleRouteAssessment?
 
     public init(
         routeID: String,
@@ -205,7 +210,8 @@ public struct RoutePlan: Codable, Equatable, Sendable {
         totalDurationS: Int,
         polyline: [GCJ02Point],
         maneuvers: [RouteManeuver],
-        traffic: [TrafficSegment]
+        traffic: [TrafficSegment],
+        motorcycleAssessment: MotorcycleRouteAssessment? = nil
     ) {
         schemaVersion = 1
         self.routeID = routeID
@@ -217,6 +223,7 @@ public struct RoutePlan: Codable, Equatable, Sendable {
         self.polyline = polyline
         self.maneuvers = maneuvers
         self.traffic = traffic
+        self.motorcycleAssessment = motorcycleAssessment
     }
 
     enum CodingKeys: String, CodingKey {
@@ -230,6 +237,7 @@ public struct RoutePlan: Codable, Equatable, Sendable {
         case polyline
         case maneuvers
         case traffic
+        case motorcycleAssessment = "motorcycle_assessment"
     }
 }
 

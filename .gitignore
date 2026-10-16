@@ -8,3 +8,6 @@
 *.ipa
 *.xcuserstate
 **/xcuserdata/
+/.playwright-cli/
+/output/playwright/
+/tools/__pycache__/
