@@ -17,7 +17,9 @@ iOS 17+；源码工程由 XcodeGen 生成。Swift Package 使用 tools-version 6
 重排出发、路线、导航中和车机详情页，统一地图、网关与隐私页面的主题。
 新增 Barlow Condensed 字体和许可副本；功能流程与导航 / BLE 核心继续沿用 MOTO GPS。
 说明与界面效果预览见[本仓库手机 UI 记录](../../../../docs/IOS_UI.md)。
-该预览按 SwiftUI 布局重绘，不是 Xcode 模拟器截图；本次尚未执行 iOS 构建或真机验证。
+该预览按 SwiftUI 布局重绘，不是 Xcode 模拟器截图。2026-10-16 已使用 Xcode 26.2 完成
+iPhone arm64 Release 构建及未签名 IPA 0.3.1 (6) 校验，导航核心 20 项测试通过。
+已识别连接的 iPhone，签名安装及真机功能验收尚未完成。默认网关仍为占位地址，真实导航需配置自己的服务。
 
 随后接入[南京骑行辅助规则](../../../../docs/NANJING_MOTORCYCLE_NAVIGATION.md)：首页和路线页进入
 “南京骑行”，默认南京郊区登记号牌，可编辑避让区域与途经点。新版本要求网关支持规则扩展；

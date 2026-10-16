@@ -93,10 +93,14 @@ class MotionLeanFusion {
     const bool quiet = length(gyro) < 1.5F &&
                        std::abs(length(sample.accel_mps2) - kGravity) < 0.6F;
     const bool moving = speed_fresh && speed_mps_ >= 0.5F;
-    const bool quiet_reference = quiet && !known_moving_;
+    // Without evidence of vehicle travel, tilting the device may still supply
+    // a gravity reference. Requiring near-zero gyro here expired the readout
+    // after two seconds of otherwise healthy hand rotation.
+    const bool stationary_reference = !known_moving_ &&
+        std::abs(length(sample.accel_mps2) - kGravity) < 0.6F;
     // Reject hard longitudinal acceleration and shocks rather than pulling
     // the attitude toward a braking or vibration force. The gyro bridges gaps.
-    if ((speed_fresh || quiet_reference) && magnitude > 8.0F && magnitude < 11.6F &&
+    if ((speed_fresh || stationary_reference) && magnitude > 8.0F && magnitude < 11.6F &&
         std::abs(acceleration.x - kGravity * up_.x) < 2.0F) {
       const float correction = dt / ((moving ? 0.8F : 0.35F) + dt);
       up_ = unit(blend(up_, unit(acceleration), correction));
@@ -106,10 +110,16 @@ class MotionLeanFusion {
     if (speed_fresh && !moving && quiet) {
       bias_ = blend(bias_, sample.gyro_dps, dt / (20.0F + dt));
     }
-    lean_deg_ = std::atan2(up_.y, up_.z) / kRadians;
+    // Large pitch alone does not invalidate a healthy IMU. Near vertical,
+    // the lateral/up projection vanishes and roll becomes ambiguous; retain
+    // the last display angle there rather than turning sensor noise into a
+    // large roll jump. Outside the display range, saturate the readout.
+    if (std::hypot(up_.y, up_.z) >= 0.15F) {
+      lean_deg_ = std::clamp(std::atan2(up_.y, up_.z) / kRadians,
+                             -85.0F, 85.0F);
+    }
     valid_ = sample.sample_ms - last_reference_ms_ <= 2000U &&
-             std::isfinite(lean_deg_) && std::abs(lean_deg_) <= 85.0F &&
-             std::abs(up_.x) < 0.7F;
+             std::isfinite(lean_deg_);
   }
 
   [[nodiscard]] bool valid() const noexcept { return valid_; }
@@ -185,7 +195,10 @@ class MotionLeanFusion {
   void calibrate(const MotionImuSample& sample, bool stationary_speed) noexcept {
     const float gravity = length(sample.accel_mps2);
     const MotionVector direction = unit(sample.accel_mps2);
-    if (!stationary_speed || length(sample.gyro_dps) > 2.0F ||
+    // Raw rates still contain the zero bias we are trying to measure.
+    // This board reports about 2-3 dps at rest; a 2 dps gate continually
+    // restarted calibration. Gravity direction must still remain stable.
+    if (!stationary_speed || length(sample.gyro_dps) > 5.0F ||
         std::abs(gravity - kGravity) > 0.6F ||
         (calibration_count_ != 0 &&
          length(subtract(direction, calibration_direction_)) > 0.025F)) {

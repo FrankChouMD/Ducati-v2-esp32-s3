@@ -40,8 +40,22 @@ CMake 在依赖解析前设置 `DUCATI_LVGL_PATH`，并将锁文件中的本地 
 idf.py -C firmware -p COM7 flash monitor
 ```
 
-这里记录操作方法，本次没有刷写设备。首次烧录会写入本项目的 bootloader、分区表和应用。
+2026-10-16 已在 macOS 使用 `/dev/cu.usbmodem1101` 完成实际烧录与数据校验。
+首次烧录会写入本项目的 bootloader、分区表和应用。
 分区表使用 8MiB factory 应用区，剩余空间预留为 SPIFFS storage；当前没有 OTA 与骑行日志写入。
+
+本工作区的 macOS 工具链位于忽略目录 `build/`，可运行：
+
+```sh
+export IDF_TOOLS_PATH="$PWD/build/esp-idf-tools"
+. ./build/esp-idf/export.sh
+idf.py -C firmware -p /dev/cu.usbmodem1101 flash monitor
+```
+
+实测发现直接从 PSRAM DMA 刷屏在 BLE 启动时出现 TX underflow。
+现使用 10 行内部内存单绘图缓冲，LVGL 的额外 2MiB 内存池仍在 PSRAM。
+调整后启动日志中屏幕、触摸、BLE 广播和 QMI8658 初始化正常，未再出现传输错误。
+此检查不代表实际画面、触摸操作或手机连接已完成验收。
 
 ## 桌面检查
 

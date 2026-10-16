@@ -373,7 +373,11 @@ void PhoneNavBridge::on_imu_sample(const MotionImuSample& sample) {
     const bool previous_valid = local.lean_valid;
     const long previous_angle = std::lround(local.lean_deg * 10.0F);
     if (sample.valid) last_imu_sample_ms_ = std::max(last_imu_sample_ms_, sample.sample_ms);
+    const bool was_calibrated = lean_fusion_.calibrated();
     lean_fusion_.update(sample);
+    if (was_calibrated != lean_fusion_.calibrated()) {
+      ESP_LOGI(kTag, "Lean calibration %s", lean_fusion_.calibrated() ? "ready" : "reset");
+    }
     local.lean_valid = lean_fusion_.valid();
     local.lean_deg = local.lean_valid ? lean_fusion_.lean_deg() : 0.0F;
     lean_dirty_ |= previous_valid != local.lean_valid ||
@@ -1010,6 +1014,14 @@ void PhoneNavBridge::render_pending() {
     presenter_.apply_to_lvgl();
   } else if (motion) {
     moto_nav_ui_set_motion_state(&presenter_.ui_state());
+#if defined(ESP_PLATFORM) && MOTO_UI_SQUARE_SCREEN
+    // On the 2.16 CO5300 board, motion-only partial refreshes left the old
+    // invalid lean glyph visible despite updated LVGL labels. A complete
+    // repaint under the display lock was verified on the physical panel.
+    // This trades additional SPI traffic for reliable attitude updates.
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(nullptr);
+#endif
   }
   if (media) {
     moto_music_state_t state{};

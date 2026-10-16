@@ -38,7 +38,9 @@ PWR Key1 将 PWRON 拉低，BSS138 电路将信号反相后送入 GPIO16 的 SYS
 
 新增 `firmware/main/board_port_waveshare_2_16.cpp` 作为 2.16 专用板级实现，
 并提供 ESP-IDF 入口、组件清单 / 锁文件、默认配置、分区表和构建说明。
-板级实现保留初始黑屏、首帧后点亮、2MiB LVGL PSRAM 池和 320 行双绘制缓冲。
+板级实现保留初始黑屏、首帧后点亮和 2MiB LVGL PSRAM 池。
+2026-10-16 接板时发现 BLE 启动伴随 PSRAM 直接 DMA TX underflow，
+现改为 10 行内部内存单绘图缓冲并关闭 PSRAM 直接 DMA；复测启动未再出现传输错误。
 直接判断 `esp_lv_adapter_lock(...) == ESP_OK`；BSP 2.0.1 的 bool 锁包装直接返回
 `esp_err_t`，会将成功值 0 转成 false。
 
@@ -103,7 +105,12 @@ iPhone App、BLE 协议和导航数据格式保持原实现。
   此项仍使用主机的 8MiB基础堆，不等同于板载 SRAM / PSRAM 的容量和时序验收。
 - 构建存在上游 MSVC 数值收窄警告及 SDK / 组件 C++ 扩展与默认初始化警告；没有编译错误。
 
-本次没有刷写开发板，也未构建 iOS App。主机测试不验证板载 PSRAM、DMA 时序或 I2C 外设响应。
+以上为此前主机验证记录，当时没有刷写开发板，也未构建 iOS App。
+
+2026-10-16 在 macOS / ESP-IDF 5.5.5 完成编译、实际烧录和校验。
+芯片报告 ESP32-S3 rev 0.2、16MB Flash、8MB PSRAM，PSRAM 内存测试通过。
+采用上述内部绘图缓冲后，日志确认 CO5300、CST9220、BLE 广播和 QMI8658 启动，
+未再出现 DMA underflow 或绘图内存不足；实际显示、触摸与 iPhone 配对仍待人工验收。
 
 ## 接板验收与后续功能
 

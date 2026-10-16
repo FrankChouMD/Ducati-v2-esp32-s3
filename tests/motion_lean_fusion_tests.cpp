@@ -89,6 +89,56 @@ void test_static_left_right_and_mount() {
   }
 }
 
+void test_hardware_zero_bias_does_not_block_calibration() {
+  MotionLeanFusion fusion;
+  for (std::uint64_t t = 8; t <= 8000; t += 8) {
+    auto sample = vehicle_sample(t <= 2200 ? 0.0F : 25.0F, 0, 0, 0, t);
+    // Measured stationary board rates, with representative sample noise.
+    sample.gyro_dps = {-1.8F + 0.4F * std::sin(t * 0.1F), 0.2F, 1.5F};
+    fusion.update(sample);
+    if (t >= 2104) CHECK(fusion.valid());
+  }
+  CHECK(fusion.calibrated());
+  CHECK(std::abs(fusion.lean_deg() - 25.0F) < 0.5F);
+
+  MotionLeanFusion rotating;
+  for (std::uint64_t t = 8; t <= 3000; t += 8) {
+    auto sample = vehicle_sample(0, 0, 0, 0, t);
+    sample.gyro_dps = {6.0F, 0, 0};
+    rotating.update(sample);
+  }
+  CHECK(!rotating.calibrated());
+}
+
+void test_large_forward_backward_pitch_keeps_readout_valid() {
+  for (float sign : {1.0F, -1.0F}) {
+    MotionLeanFusion fusion;
+    auto now = calibrate(fusion);
+    float pitch_deg = 0.0F;
+    // Pitch to vertical and return, using consistent gyro and gravity data.
+    // The old abs(up.x) < 0.7 gate invalidated this at about 45 degrees.
+    for (int phase = 0; phase < 2; ++phase) {
+      for (int i = 0; i < 750; ++i) {
+        const float rate = i < 500 ? sign * (phase == 0 ? 22.5F : -22.5F) : 0.0F;
+        pitch_deg += rate * 0.008F;
+        const float pitch = pitch_deg * kRad;
+        now += 8;
+        auto sample = vehicle_sample(0, 0, 0, 0, now);
+        sample.accel_mps2 = {0, kGravity * std::sin(pitch), kGravity * std::cos(pitch)};
+        sample.gyro_dps = {0.12F + rate, -0.18F, 0.09F};
+        fusion.update(sample);
+        CHECK(fusion.valid());
+        CHECK(std::abs(fusion.lean_deg()) < 0.5F);
+      }
+    }
+    // A missing sample must still clear validity after a large pitch excursion.
+    MotionImuSample missing;
+    missing.sample_ms = now + 8;
+    fusion.update(missing);
+    CHECK(!fusion.valid());
+  }
+}
+
 void test_turn_force_is_not_treated_as_gravity() {
   for (float sign : {1.0F, -1.0F}) {
     MotionLeanFusion fusion;
@@ -200,6 +250,8 @@ void test_gentle_turn_does_not_become_stationary_after_speed_expires() {
 }  // namespace
 
 int main() {
+  test_large_forward_backward_pitch_keeps_readout_valid();
+  test_hardware_zero_bias_does_not_block_calibration();
   test_static_left_right_and_mount();
   test_turn_force_is_not_treated_as_gravity();
   test_invalid_data_gaps_and_recalibration();

@@ -119,13 +119,20 @@ void MotionHeadingSensor::run() {
   qmi8658_set_accel_unit_mps2(&device, true);
   qmi8658_set_gyro_unit_dps(&device, true);
 
-  const auto emit_sample = [this](const qmi8658_data_t& data, float heading_rate) {
+  std::uint64_t last_sample_log_ms = 0;
+  const auto emit_sample = [this, &last_sample_log_ms](const qmi8658_data_t& data, float heading_rate) {
     MotionImuSample sample;
     sample.accel_mps2 = {data.accelX, data.accelY, data.accelZ};
     sample.gyro_dps = {data.gyroX, data.gyroY, data.gyroZ};
     sample.heading_rate_dps = heading_rate;
     sample.sample_ms = monotonic_ms();
     sample.valid = true;
+    if (sample.sample_ms - last_sample_log_ms >= 2000U) {
+      ESP_LOGD(kTag, "IMU accel=(%.2f,%.2f,%.2f) gyro=(%.2f,%.2f,%.2f)",
+               data.accelX, data.accelY, data.accelZ,
+               data.gyroX, data.gyroY, data.gyroZ);
+      last_sample_log_ms = sample.sample_ms;
+    }
     callback_(sample, callback_context_);
   };
 

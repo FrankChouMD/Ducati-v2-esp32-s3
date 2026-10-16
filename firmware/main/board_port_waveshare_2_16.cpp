@@ -28,7 +28,7 @@
 namespace {
 constexpr char kTag[] = "ducati_board_2_16";
 constexpr gpio_num_t kPowerButtonGpio = GPIO_NUM_16;
-constexpr std::uint16_t kDrawBufferHeight = 320;
+constexpr std::uint16_t kDrawBufferHeight = 10;
 constexpr int kTransactionQueueDepth = 1;
 constexpr std::size_t kLvglPoolBytes = 2U * 1024U * 1024U;
 constexpr std::uint16_t kAxp2101Address = 0x34;
@@ -114,7 +114,9 @@ esp_err_t initialize_hidden_panel(esp_lcd_panel_io_handle_t* io_out) {
   io_config.lcd_cmd_bits = 32;
   io_config.lcd_param_bits = 8;
   io_config.flags.quad_mode = true;
-  io_config.flags.psram_dma_direct = true;
+  // Use internal RAM for color DMA. Direct PSRAM DMA underflows on the
+  // board when Bluetooth starts sharing memory bandwidth.
+  io_config.flags.psram_dma_direct = false;
   esp_lcd_panel_io_handle_t io = nullptr;
   ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_spi(
                           static_cast<esp_lcd_spi_bus_handle_t>(BSP_LCD_SPI_NUM),
@@ -225,8 +227,8 @@ extern "C" esp_err_t board_port_init(void) {
           panel, io, MOTO_DISPLAY_WIDTH, MOTO_DISPLAY_HEIGHT,
           ESP_LV_ADAPTER_ROTATE_0);
   config.profile.buffer_height = kDrawBufferHeight;
-  config.profile.require_double_buffer = true;
-  config.profile.use_psram = true;
+  config.profile.require_double_buffer = false;
+  config.profile.use_psram = false;
   display = esp_lv_adapter_register_display(&config);
   if (display == nullptr) return ESP_FAIL;
   ESP_RETURN_ON_ERROR(esp_lv_adapter_set_area_rounder_cb(display, round_draw_area, nullptr),
