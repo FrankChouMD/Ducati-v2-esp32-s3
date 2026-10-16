@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <fstream>
 #include <limits>
 #include <string>
 #include <vector>
@@ -37,6 +38,8 @@ constexpr std::size_t kFrameBytes = static_cast<std::size_t>(kWidth) *
 
 std::vector<std::uint8_t> shadow_frame;
 std::uint64_t flush_count = 0;
+std::uint64_t flushed_pixels = 0;
+const char* preview_directory = nullptr;
 
 void flush_cb(lv_display_t* display, const lv_area_t* area,
               std::uint8_t* px_map) {
@@ -55,6 +58,7 @@ void flush_cb(lv_display_t* display, const lv_area_t* area,
     std::memcpy(shadow_frame.data() + dst, px_map + src, row_bytes);
   }
   ++flush_count;
+  flushed_pixels += lv_area_get_size(area);
   lv_display_flush_ready(display);
 }
 
@@ -105,9 +109,40 @@ struct Frame {
   std::vector<std::uint8_t> bytes;
 };
 
+bool same_pixels_after_repaint(const Frame& partial) {
+  // LVGL's software scaler rounds at the clipped strip origin. A different
+  // flush width can change a few RGB565 components by one quantization step;
+  // stale glyphs, silhouettes or uncleared backgrounds exceed this bound.
+  unsigned quantized_pixels = 0;
+  for(std::size_t i = 0; i < shadow_frame.size(); i += 2) {
+    const unsigned a = partial.bytes[i] | (partial.bytes[i + 1] << 8);
+    const unsigned b = shadow_frame[i] | (shadow_frame[i + 1] << 8);
+    if(a == b) continue;
+    if(std::abs(static_cast<int>(a >> 11) - static_cast<int>(b >> 11)) > 1 ||
+       std::abs(static_cast<int>((a >> 5) & 63) - static_cast<int>((b >> 5) & 63)) > 1 ||
+       std::abs(static_cast<int>(a & 31) - static_cast<int>(b & 31)) > 1) return false;
+    ++quantized_pixels;
+  }
+  return quantized_pixels <= 32;
+}
+
 Frame capture() {
   pump();
   return Frame{frame_hash(), shadow_frame};
+}
+
+void save_preview(const char* name) {
+  if(!preview_directory) return;
+  std::ofstream output(std::string(preview_directory) + "/" + name, std::ios::binary);
+  output << "P6\n" << kWidth << " " << kHeight << "\n255\n";
+  for(std::size_t i = 0; i < shadow_frame.size(); i += 2) {
+    const unsigned pixel = shadow_frame[i] | (shadow_frame[i + 1] << 8);
+    const char rgb[] = {static_cast<char>(((pixel >> 11) & 31) * 255 / 31),
+                        static_cast<char>(((pixel >> 5) & 63) * 255 / 63),
+                        static_cast<char>((pixel & 31) * 255 / 31)};
+    output.write(rgb, 3);
+  }
+  CHECK(output.good());
 }
 
 moto_ui_state_t base_state() {
@@ -123,6 +158,7 @@ moto_ui_state_t base_state() {
   state.gps_accuracy_m = 5;
   state.online = 1;
   state.has_destination = 1;
+  state.has_usable_fix = 1;
   state.route_identity = 77;
   state.route_generation = 1;
   state.map_scene_revision = 4;
@@ -272,6 +308,133 @@ void test_phone_lifecycle_renders_deterministically() {
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_CONNECTING);
   const Frame connecting = capture();
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_OFFLINE); CHECK(capture().hash == offline.hash);
+}
+
+lv_obj_t* visible_label(lv_obj_t* object, const char* text);
+
+void test_active_navigation_survives_location_and_geometry_gaps() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_demo_active(0);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  pump(240); // Let the connection-success banner finish before navigation.
+  moto_ui_state_t state = base_state();
+  fill_route(state, 12);
+  moto_nav_ui_set_state(&state);
+  pump(1'200); // Settle page hints before comparing navigation frames.
+  const Frame navigating = capture();
+  CHECK(!visible_label(lv_screen_active(), "READY TO RIDE"));
+
+  // A new session without a remembered route uses the waiting screen.
+  // Missing points must not erase the destination or return to idle.
+  state.mode = MOTO_UI_ACQUIRING_FIX;
+  state.route_point_count = 0;
+  state.has_usable_fix = 0;
+  state.gps_accuracy_m = 0;
+  state.distance_to_maneuver_m = 0;
+  state.road_name = state.next_road_name = nullptr;
+  moto_nav_ui_set_state(&state);
+  const Frame locating = capture();
+  CHECK(visible_label(lv_screen_active(), "WAITING FOR GPS"));
+  CHECK(!visible_label(lv_screen_active(), "READY TO RIDE"));
+  lv_obj_invalidate(lv_screen_active());
+  capture();
+  CHECK(same_pixels_after_repaint(locating));
+  save_preview("navigation-waiting-gps.ppm");
+  pump(1'200); // Six seconds of continuing navigation without a new fix.
+  CHECK(capture().hash == locating.hash);
+
+  // A valid fix may arrive before the matching route-geometry BLE batch.
+  state.mode = MOTO_UI_NAVIGATING;
+  state.has_usable_fix = 1;
+  state.gps_accuracy_m = 5;
+  moto_nav_ui_set_state(&state);
+  const Frame syncing = capture();
+  CHECK(visible_label(lv_screen_active(), "SYNCING ROUTE"));
+  CHECK(!visible_label(lv_screen_active(), "READY TO RIDE"));
+  lv_obj_invalidate(lv_screen_active());
+  capture();
+  CHECK(same_pixels_after_repaint(syncing));
+  save_preview("navigation-waiting-route.ppm");
+
+  state.mode = MOTO_UI_REROUTING;
+  state.route_request_in_flight = 1;
+  moto_nav_ui_set_state(&state);
+  capture();
+  CHECK(visible_label(lv_screen_active(), "BUILDING ROUTE"));
+  CHECK(!visible_label(lv_screen_active(), "READY TO RIDE"));
+
+  state = base_state();
+  fill_route(state, 12);
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == navigating.hash);
+  CHECK(!visible_label(lv_screen_active(), "WAITING FOR GPS"));
+
+  // Only an explicit end/cancel returns the connected display to Ready.
+  state = {};
+  state.page = MOTO_UI_PAGE_NAVIGATION;
+  state.mode = MOTO_UI_ACQUIRING_FIX;
+  moto_nav_ui_set_state(&state);
+  capture();
+  CHECK(visible_label(lv_screen_active(), "READY TO RIDE"));
+  CHECK(!visible_label(lv_screen_active(), "SYNCING ROUTE"));
+}
+
+void test_remembered_route_stays_visible_without_live_gps() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_demo_active(0);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_ui_state_t fresh = base_state();
+  fresh.distance_to_maneuver_m = 137;
+  fill_streets(fresh);
+  fresh.route_point_count = 3;
+  fresh.route_points[0] = {kWidth / 4, kHeight / 2};
+  fresh.route_points[1] = {kWidth / 2, kHeight / 2 + 10};
+  fresh.route_points[2] = {kWidth * 3 / 4, kHeight / 2};
+  moto_nav_ui_set_state(&fresh);
+  pump(1'200);
+  const Frame navigating = capture();
+  CHECK(visible_label(lv_screen_active(), "137"));
+
+  moto_ui_state_t remembered = fresh;
+  remembered.mode = MOTO_UI_ACQUIRING_FIX;
+  remembered.has_usable_fix = 0;
+  remembered.gps_accuracy_m = 0;
+  remembered.speed_kph = 0;
+  remembered.distance_to_maneuver_m = 0;
+  remembered.road_name = remembered.next_road_name = nullptr;
+  moto_nav_ui_set_state(&remembered);
+  const Frame waiting = capture();
+  CHECK(visible_label(lv_screen_active(), "等待定位"));
+  CHECK(!visible_label(lv_screen_active(), "WAITING FOR GPS"));
+  CHECK(!visible_label(lv_screen_active(), "READY TO RIDE"));
+  CHECK(!visible_label(lv_screen_active(), "137"));
+  CHECK(!visible_label(lv_screen_active(), "50"));
+#if MOTO_UI_SQUARE_SCREEN
+  CHECK(visible_label(lv_screen_active(), "--"));
+#endif
+  // Compare the actual map pixels around the route, excluding HUD labels.
+  const auto start = (kHeight / 2 - 12) * kWidth * 2;
+  const auto end = (kHeight / 2 + 24) * kWidth * 2;
+  CHECK(std::equal(navigating.bytes.begin() + start, navigating.bytes.begin() + end,
+                   waiting.bytes.begin() + start));
+  CHECK(std::any_of(waiting.bytes.begin() + start, waiting.bytes.begin() + end,
+                    [](std::uint8_t byte) { return byte != 0; }));
+  lv_obj_invalidate(lv_screen_active());
+  capture();
+  CHECK(same_pixels_after_repaint(waiting));
+  save_preview("navigation-last-route-gps.ppm");
+  pump(1'200);
+  CHECK(capture().hash == waiting.hash);
+  moto_nav_ui_set_page(MOTO_UI_PAGE_SPEED);
+  capture();
+  moto_nav_ui_set_page(MOTO_UI_PAGE_NAVIGATION);
+  pump(1'200);
+  CHECK(capture().hash == waiting.hash);
+
+  moto_nav_ui_set_state(&fresh);
+  CHECK(capture().hash == navigating.hash);
+  CHECK(!visible_label(lv_screen_active(), "等待定位"));
+  CHECK(visible_label(lv_screen_active(), "137"));
 }
 
 void test_demo_mode_visual_contract() {
@@ -508,19 +671,35 @@ void test_square_navigation_hud_and_lean_repaint() {
   check_corner("58", false, true);
   check_corner("0°", true, true);
 
-  // Each lean update dirties the bike AND the right-corner reference strip.
-  // Repainting the full screen must produce identical pixels, with no trails.
+  const Frame centred_marker = capture();
+  CHECK(MOTO_UI_NAV_VEHICLE_Y == kHeight / 2);
+  const auto check_marker_unchanged = [&](const Frame& frame) {
+    for(int y = kHeight / 2 - 56; y < kHeight / 2 + 56; ++y) {
+      for(int x = kWidth / 2 - 24; x < kWidth / 2 + 24; ++x) {
+        const auto offset = static_cast<std::size_t>(y * kWidth + x) * 2;
+        CHECK(frame.bytes[offset] == centred_marker.bytes[offset]);
+        CHECK(frame.bytes[offset + 1] == centred_marker.bytes[offset + 1]);
+      }
+    }
+  };
+  // Only the right-corner instrument changes; the location icon stays fixed.
+  // Repainting the full screen must preserve the image, with no trails.
   for(float angle : {-85.0F, -30.0F, 0.0F, 30.0F, 85.0F}) {
     state.lean_deg = angle;
-    moto_nav_ui_set_motion_state(&state);
+    const auto pixels_before = flushed_pixels;
+    moto_nav_ui_set_lean_state(&state);
     const Frame partial = capture();
+    CHECK(flushed_pixels - pixels_before < static_cast<unsigned>(kWidth * kHeight / 4));
+    check_marker_unchanged(partial);
+    if(angle == 30.0F) save_preview("navigation.ppm");
     lv_obj_invalidate(lv_screen_active());
     lv_refr_now(lv_display_get_default());
-    CHECK(shadow_frame == partial.bytes);
+    CHECK(same_pixels_after_repaint(partial));
   }
   state.lean_valid = 0;
-  moto_nav_ui_set_motion_state(&state);
+  moto_nav_ui_set_lean_state(&state);
   const Frame unavailable = capture();
+  check_marker_unchanged(unavailable);
   CHECK(visible_label(lv_screen_active(), "--°") != nullptr);
   lv_obj_invalidate(lv_screen_active());
   lv_refr_now(lv_display_get_default());
@@ -546,6 +725,22 @@ void test_square_navigation_hud_and_lean_repaint() {
     lv_obj_get_coords(lv_obj_get_parent(kilometers), &instruction_bounds);
     CHECK(unit_bounds.x2 <= instruction_bounds.x2);
   }
+  state.page = MOTO_UI_PAGE_SPEED;
+  state.lean_valid = 1;
+  state.lean_deg = 30.0F;
+  moto_nav_ui_set_state(&state);
+  capture();
+  save_preview("speed.ppm");
+  for(float angle : {-85.0F, -30.0F, 0.0F, 30.0F, 85.0F}) {
+    state.lean_deg = angle;
+    const auto pixels_before = flushed_pixels;
+    moto_nav_ui_set_lean_state(&state);
+    const Frame partial = capture();
+    CHECK(flushed_pixels - pixels_before < static_cast<unsigned>(kWidth * kHeight / 4));
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(lv_display_get_default());
+    CHECK(same_pixels_after_repaint(partial));
+  }
 #endif
 }
 
@@ -554,6 +749,7 @@ void test_square_navigation_hud_and_lean_repaint() {
 int main(int argc, char **argv) {
   const int buffer_rows = argc > 1 ? std::atoi(argv[1]) : 40;
   const int extra_pool_bytes = argc > 2 ? std::atoi(argv[2]) : 0;
+  preview_directory = argc > 3 ? argv[3] : nullptr;
   if(buffer_rows < 1 || buffer_rows > kHeight) return EXIT_FAILURE;
   if(extra_pool_bytes < 0) return EXIT_FAILURE;
   init_display(buffer_rows, extra_pool_bytes);
@@ -576,6 +772,8 @@ int main(int argc, char **argv) {
   run("geometry clearing", test_clearing_geometry_leaves_no_residue);
   run("music", test_music_page_state_and_fallback);
   run("phone lifecycle", test_phone_lifecycle_renders_deterministically);
+  run("live navigation gaps", test_active_navigation_survives_location_and_geometry_gaps);
+  run("remembered route without GPS", test_remembered_route_stays_visible_without_live_gps);
   run("demo mode", test_demo_mode_visual_contract);
   run("capacity payloads", test_capacity_payloads_render_stably);
   run("motion interpolation", test_motion_frames_interpolate_then_settle_without_residue);

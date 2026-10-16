@@ -35,6 +35,11 @@ final class MotoGPSUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["map-downloads-sheet"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["自动加载周边地图"].exists)
         keepScreenshot(of: app, named: "MOTO GPS map downloads")
+        if !app.buttons["map-download-city"].isEnabled {
+            XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "尚未配置可选底图网关")).firstMatch.exists)
+            app.buttons["map-downloads-done"].tap()
+            return
+        }
         app.buttons["map-download-city"].tap()
         XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["添加常用城市"].exists)
@@ -144,7 +149,7 @@ final class MotoGPSUITests: XCTestCase {
 
         let start = app.buttons["primary-navigation-action"]
         XCTAssertTrue(start.waitForExistence(timeout: 3))
-        XCTAssertFalse(start.isEnabled)
+        XCTAssertTrue(start.isEnabled)
 
         try tapSystemBack(in: app)
         XCTAssertTrue(app.staticTexts["最近搜索"].waitForExistence(timeout: 3))
@@ -173,8 +178,8 @@ final class MotoGPSUITests: XCTestCase {
         // alone must remain a preview, including when no round screen is paired.
         let start = app.buttons["primary-navigation-action"]
         XCTAssertTrue(start.waitForExistence(timeout: 3))
-        XCTAssertFalse(start.isEnabled)
-        confirmRidingReview(in: app)
+        XCTAssertFalse(app.switches["riding-route-reviewed"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["riding-rule-assessment"].exists)
         XCTAssertTrue(start.isEnabled)
         refreshTestLocation()
         start.tap()
@@ -370,17 +375,6 @@ final class MotoGPSUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
-    }
-
-    private func confirmRidingReview(in app: XCUIApplication) {
-        let review = app.switches["riding-route-reviewed"]
-        XCTAssertTrue(review.waitForExistence(timeout: 5))
-        for _ in 0 ..< 8 {
-            if review.isHittable { break }
-            app.swipeUp()
-        }
-        XCTAssertTrue(review.isHittable)
-        review.tap()
     }
 
     private func tapSystemBack(in app: XCUIApplication) throws {

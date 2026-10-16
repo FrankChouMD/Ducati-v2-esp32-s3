@@ -12,6 +12,7 @@
 | 微雪 BSP / CO5300 派生板级代码 | Apache-2.0 | [许可正文](third_party/moto-gps-waveshare/LICENSES/Waveshare-Apache-2.0.txt)、[派生文件](third_party/moto-gps-waveshare/platforms/esp32/main/board_port_waveshare_1_75c.cpp) |
 | 2.16 板级适配，派生自 Maler X 板级代码与 Waveshare BSP 2.0.1 | Apache-2.0 | [派生文件及修改标记](firmware/main/board_port_waveshare_2_16.cpp)、[许可正文](third_party/moto-gps-waveshare/LICENSES/Waveshare-Apache-2.0.txt)、[来源记录](docs/BOARD_2_16_ADAPTATION.md) |
 | Ducati 盾标与启动画面素材 | 品牌标识保持原权利状态；SVG 来源页标注 PD-textlogo / 商标限制 | [素材及来源记录](firmware/assets/boot/README.md)、[原始 SVG](firmware/assets/boot/ducati-red-logo.svg) |
+| 导航俯视摩托车生成素材 | 内置 ImageGen 根据用户参考图生成；参考照片及品牌保持原权利状态 | [原图、提示词与生成记录](firmware/assets/navigation/README.md) |
 | Source Han Sans SC 字体子集 | SIL OFL 1.1 | [许可正文](third_party/moto-gps-waveshare/LICENSES/SourceHanSansSC-OFL.txt) |
 | Montserrat 字体 | SIL OFL 1.1 | [许可正文](third_party/moto-gps-waveshare/LICENSES/Montserrat-OFL.txt) |
 | Barlow Condensed 1.408 仪表字体、LVGL 子集及 iPhone UI 字体，The Barlow Project Authors | SIL OFL 1.1 | [许可正文](firmware/assets/fonts/OFL.txt)、[来源与生成记录](firmware/assets/fonts/README.md)、[iOS 字体及许可证副本](third_party/moto-gps-waveshare/platforms/ios/App/Fonts) |
@@ -36,3 +37,11 @@ ESP-IDF、NimBLE、ESP-IDF 托管组件、Node 依赖、Emscripten / SDL 与其�
 
 高德、Apple Music、Apple MapKit 为外部服务 / SDK，其账号、服务数据和 SDK 使用权
 不由本仓库的软件许可证授予。本次导入没有添加新的服务账号、签名证书或 API Key。
+
+## 高德 iOS SDK（2026-10-16 接入）
+
+App 集成 AMapNaviKit 11.3.100（含地图）、AMapSearchKit 9.8.1 和无 IDFA 的
+AMapFoundationKit 1.9.4。二进制不提交 Git，由 `tools/setup_amap_ios_sdk.py` 从官方地址
+校验下载。SDK 与服务适用高德自己的[服务协议](https://lbs.amap.com/home/terms/)和
+[隐私政策](https://lbs.amap.com/pages/privacy/)，不适用本项目源码许可证。厂商原始隐私清单
+作为独立资源 bundle 打包。接入说明见 `docs/IOS_AMAP_SDK.md`。

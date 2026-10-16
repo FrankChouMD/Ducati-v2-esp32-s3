@@ -1,0 +1,18 @@
+{
+  "source": "firmware/assets/navigation/ducati-top-source.png",
+  "source_sha256": "5d9d0a3231f4cdeffdd4961972fe178cf285265f196c3194dfea9faf4f3e779d",
+  "crop": [
+    197,
+    33,
+    827,
+    1502
+  ],
+  "size": [
+    48,
+    112
+  ],
+  "pixel_bytes": 21504,
+  "format": "ARGB8888 / BGRA bytes",
+  "orientation": "front points up",
+  "generator": "built-in imagegen, reference supplied by user, 2026-10-16"
+}

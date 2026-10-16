@@ -366,7 +366,7 @@ void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
 }
 
 void PhoneNavBridge::on_imu_sample(const MotionImuSample& sample) {
-  bool should_present = false;
+  std::uint32_t render_flags = 0;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
     auto& local = phone_snapshot_locked();
@@ -386,23 +386,26 @@ void PhoneNavBridge::on_imu_sample(const MotionImuSample& sample) {
     const bool heading_changed = heading_fusion_.integrate(
         sample.heading_rate_dps, sample.sample_ms);
     if (heading_changed) snapshot_.heading_deg = heading_fusion_.heading_deg();
+    heading_dirty_ |= heading_changed;
     // The QMI8658 runs at 125 Hz. Reproject at the display's unified 40 Hz
     // cadence; requests still coalesce if one physical refresh runs long.
-    const bool heading_visible = snapshot_.has_route_view ||
+    const bool heading_visible =
+        (snapshot_.display_page == moto::nav::DisplayPage::Navigation && snapshot_.has_route_view) ||
         snapshot_.display_page == moto::nav::DisplayPage::Compass;
     const bool lean_visible = snapshot_.display_page == moto::nav::DisplayPage::Navigation ||
         snapshot_.display_page == moto::nav::DisplayPage::Speed;
     if (sample.sample_ms >= last_motion_present_ms_ + 25U &&
-        ((heading_changed && heading_visible) || (lean_dirty_ && lean_visible))) {
+        ((heading_dirty_ && heading_visible) || (lean_dirty_ && lean_visible))) {
       // Preserve the 25 ms phase. Setting this to sample_ms quantizes every
       // interval to four 8 ms samples (32 ms), silently reducing 40 to 31 Hz.
       last_motion_present_ms_ +=
           ((sample.sample_ms - last_motion_present_ms_) / 25U) * 25U;
       lean_dirty_ = false;
-      should_present = true;
+      render_flags = heading_dirty_ && heading_visible ? RenderMotion : RenderLean;
+      heading_dirty_ = false;
     }
   }
-  if (should_present) present_motion();
+  if (render_flags != 0) request_render(render_flags);
 }
 
 void PhoneNavBridge::fill_demo_snapshot(moto::nav::NavSnapshot& output,
@@ -947,10 +950,6 @@ void PhoneNavBridge::present_navigation() {
   request_render(RenderNavigation);
 }
 
-void PhoneNavBridge::present_motion() {
-  request_render(RenderMotion);
-}
-
 void PhoneNavBridge::request_render(std::uint32_t flags) noexcept {
   pending_render_flags_.fetch_or(flags, std::memory_order_release);
 #ifdef ESP_PLATFORM
@@ -971,10 +970,11 @@ void PhoneNavBridge::render_pending() {
 
   const bool navigation = (requested & RenderNavigation) != 0U;
   const bool motion = !navigation && (requested & RenderMotion) != 0U;
+  const bool lean = !navigation && !motion && (requested & RenderLean) != 0U;
   const bool media = (requested & RenderMedia) != 0U;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
-    if (navigation || motion) {
+    if (navigation || motion || lean) {
       render_snapshot_ = snapshot_;
     }
     if (navigation) {
@@ -992,6 +992,8 @@ void PhoneNavBridge::render_pending() {
   // display mutex so the LVGL worker can finish the previous flush in parallel.
   if (navigation || motion) {
     presenter_.update(render_snapshot_);
+  } else if (lean) {
+    presenter_.update_lean(render_snapshot_);
   }
 
   // The BLE worker has already returned before this point in firmware. The
@@ -1012,14 +1014,12 @@ void PhoneNavBridge::render_pending() {
     moto_nav_ui_set_music_page_enabled(
         render_music_page_enabled_ ? 1U : 0U);
     presenter_.apply_to_lvgl();
-  } else if (motion) {
-    moto_nav_ui_set_motion_state(&presenter_.ui_state());
+  } else if (motion || lean) {
+    if (lean) moto_nav_ui_set_lean_state(&presenter_.ui_state());
+    else moto_nav_ui_set_motion_state(&presenter_.ui_state());
 #if defined(ESP_PLATFORM) && MOTO_UI_SQUARE_SCREEN
-    // On the 2.16 CO5300 board, motion-only partial refreshes left the old
-    // invalid lean glyph visible despite updated LVGL labels. A complete
-    // repaint under the display lock was verified on the physical panel.
-    // This trades additional SPI traffic for reliable attitude updates.
-    lv_obj_invalidate(lv_screen_active());
+    // Submit the dirty instrument region promptly. update_lean clears the
+    // local panel; a screen-wide invalidation needlessly retransmits the map.
     lv_refr_now(nullptr);
 #endif
   }

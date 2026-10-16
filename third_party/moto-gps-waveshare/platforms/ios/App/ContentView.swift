@@ -91,7 +91,7 @@ struct ContentView: View {
                 if !model.destinationQuery.isEmpty {
                     searchResultsSection
                 } else {
-                    if !model.isGatewayConfigured { gatewaySetupButton }
+                    if !model.isNavigationConfigured { gatewaySetupButton }
                     ridingSettingsButton
                     deviceSummaryButton
                     recentPlacesSection
@@ -109,7 +109,7 @@ struct ContentView: View {
                     }
                     HStack(spacing: 20) {
                         Button { showsGatewaySettings = true } label: {
-                            Label("网关设置", systemImage: "gearshape")
+                            Label("高德 SDK 设置", systemImage: "gearshape")
                                 .font(.caption).frame(minHeight: 44)
                         }.accessibilityIdentifier("gateway-settings-button")
                         Button { showsDataUse = true } label: {
@@ -135,7 +135,7 @@ struct ContentView: View {
                     Image(systemName: "gearshape").frame(minWidth: 44, minHeight: 44)
                 }
                 .foregroundStyle(DucatiTheme.primary)
-                .accessibilityLabel("网关设置")
+                .accessibilityLabel("高德 SDK 设置")
                 .accessibilityIdentifier("gateway-settings-toolbar")
             }
             ToolbarItem(placement: .topBarTrailing) { deviceToolbarButton }
@@ -151,8 +151,8 @@ struct ContentView: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "network").foregroundStyle(DucatiTheme.warning)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("设置导航网关").font(.subheadline.weight(.semibold))
-                    Text("填写网关地址，开启地点搜索与路线规划。")
+                    Text("配置高德 iOS SDK").font(.subheadline.weight(.semibold))
+                    Text("填写 iOS Key，手机直连高德搜索与导航。")
                         .font(.caption).foregroundStyle(DucatiTheme.secondary)
                 }
                 Spacer(minLength: 0)
@@ -288,7 +288,7 @@ struct ContentView: View {
 
     private var mapToolButton: some View {
         Button { showsMapDownloads = true } label: {
-            DucatiToolTile(title: "离线地图", subtitle: "提前保存沿途地图", symbol: "map")
+            DucatiToolTile(title: "离线地图", subtitle: "底图缓存 · 可选服务", symbol: "map")
         }
         .buttonStyle(.plain)
         .accessibilityLabel("地图与离线下载")
@@ -313,13 +313,10 @@ struct ContentView: View {
             HStack(spacing: 12) {
                 Image(systemName: "slider.horizontal.3").foregroundStyle(DucatiTheme.accent)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("南京骑行").font(.subheadline.weight(.semibold))
-                    Text("\(model.ridingOptions.registration.title) · \(model.ridingOptions.avoidHighways ? "避开高速" : "允许高速算路")")
+                    Text("骑行设置").font(.subheadline.weight(.semibold))
+                    Text("\(model.ridingOptions.avoidHighways ? "避开高速" : "允许高速") · \(model.ridingOptions.avoidElevatedRoads ? "避开高架" : "允许高架")")
                         .font(.caption).foregroundStyle(DucatiTheme.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(model.ridingOptions.registration == .nanjingUrban
-                         ? "摩途禁外摩区 · 当前登记类型不适用" : "摩途禁外摩区 · 自动避让")
-                        .font(.caption2).foregroundStyle(DucatiTheme.warning)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(DucatiTheme.secondary)
@@ -380,9 +377,6 @@ struct ContentView: View {
                             ForEach(model.routePreviewCandidates) { candidate in routeOptionRow(candidate) }
                             Text("高德驾车路线 · 预计时间会随路况变化")
                                 .font(.caption2).foregroundStyle(DucatiTheme.secondary)
-                        }
-                        if let assessment = model.selectedRoutePreview?.route.motorcycleAssessment {
-                            MotorcycleAssessmentCard(assessment: assessment, review: $model.ridingReviewConfirmed)
                         }
                         mapDownloadsButton
                     } else if let failure = model.routePreviewFailure {
@@ -500,9 +494,6 @@ struct ContentView: View {
                 }
                 .background(DucatiTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
-                if !model.isDemoActive, let assessment = model.activeMotorcycleAssessment {
-                    MotorcycleAssessmentCard(assessment: assessment)
-                }
                 VStack(alignment: .leading, spacing: 12) {
                     DucatiSectionTitle(title: "导航状态", index: "LIVE STATUS")
                     deviceSummaryButton

@@ -21,11 +21,11 @@
 #define MOTO_UI_SQUARE_SCREEN 0
 #endif
 
-/* Shared map origin: geographic projection and the vehicle contact point must
+/* Shared map origin: geographic projection and the position marker must
  * use the same anchor. The square dashboard reserves its four corners for HUD. */
 #define MOTO_UI_NAV_VEHICLE_X (MOTO_UI_CANVAS_WIDTH / 2)
 #if MOTO_UI_SQUARE_SCREEN
-#define MOTO_UI_NAV_VEHICLE_Y ((318 * MOTO_UI_CANVAS_HEIGHT + 180) / 360)
+#define MOTO_UI_NAV_VEHICLE_Y (MOTO_UI_CANVAS_HEIGHT / 2)
 #define MOTO_UI_NAV_MAP_HEIGHT ((344 * MOTO_UI_CANVAS_HEIGHT + 180) / 360)
 #else
 #define MOTO_UI_NAV_VEHICLE_Y ((196 * MOTO_UI_CANVAS_HEIGHT + 180) / 360)
@@ -142,6 +142,7 @@ typedef struct {
     uint8_t gps_accuracy_m;
     uint8_t online;
     uint8_t has_destination;
+    uint8_t has_usable_fix;
     uint8_t route_request_in_flight;
     /* Geometry identity, used only to distinguish a reroute/map replacement
        from ordinary high-rate heading and position motion. */
@@ -178,6 +179,8 @@ void moto_nav_ui_show_power_off_screen(void);
 void moto_nav_ui_set_state(const moto_ui_state_t *state);
 /** Apply high-rate route/heading motion and current lean to the visible page. */
 void moto_nav_ui_set_motion_state(const moto_ui_state_t *state);
+/* Update only the visible lean instrument; leave map/heading/speed untouched. */
+void moto_nav_ui_set_lean_state(const moto_ui_state_t *state);
 /** Long-press either lean readout to establish a new upright zero. */
 void moto_nav_ui_set_lean_calibration_callback(
     moto_lean_calibration_callback_t callback, void *context);

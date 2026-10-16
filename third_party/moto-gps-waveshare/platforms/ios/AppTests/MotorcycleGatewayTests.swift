@@ -4,6 +4,25 @@ import XCTest
 @testable import MOTO_GPS
 
 final class MotorcycleGatewayTests: XCTestCase {
+    func testLegacyPreferencesEnableElevatedAvoidanceWithoutLosingExistingChoices() throws {
+        let suite = "MotorcycleMigration.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let area = MotorcycleAvoidArea(id: "saved", name: "保留区域", points: [point(118.6,31.8),point(118.61,31.8),point(118.61,31.81)])
+        let original = MotorcycleRouteOptions(registration: .nonNanjing, avoidHighways: false,
+            avoidElevatedRoads: true, avoidTolls: true, avoidFerries: true,
+            avoidAreas: [area], waypoints: [point(118.75,31.9)])
+        var stored = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        stored.removeValue(forKey: "avoid_elevated_roads")
+        defaults.set(try JSONSerialization.data(withJSONObject: stored), forKey: MotorcyclePreferenceStore.key)
+        XCTAssertEqual(MotorcyclePreferenceStore.load(defaults: defaults), original)
+        let migrated = try JSONDecoder().decode(MotorcycleRouteOptions.self, from: XCTUnwrap(defaults.data(forKey: MotorcyclePreferenceStore.key)))
+        XCTAssertEqual(migrated, original)
+        var disabled = original; disabled.avoidElevatedRoads = false
+        try MotorcyclePreferenceStore.save(disabled, defaults: defaults)
+        XCTAssertEqual(MotorcyclePreferenceStore.load(defaults: defaults), disabled)
+    }
+
     func testPreviewRerouteAndTrafficSendTheirExactSettings() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MotorcycleTestURLProtocol.self]

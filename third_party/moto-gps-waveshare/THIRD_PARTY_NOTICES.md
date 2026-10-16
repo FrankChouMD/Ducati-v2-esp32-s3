@@ -42,3 +42,13 @@ MOTO GPS 是独立开发项目，不代表 Waveshare、Garmin、Apple 或高德�
 Waveshare、Quectel、华夏彩光、连接器与其他器件厂商的资料，以及带原发布者标识的参考图，
 版权和使用条件由各原发布者保留。仓库提供这些材料用于理解设计依据，根目录许可不重新授权这些材料。
 第三方符号、封装及其派生内容继续保留原有声明；其余项目原创电路、机械脚本和设计文档沿用项目许可。
+
+## Ducati iOS 原生 SDK 适配（2026-10-16）
+
+集成高德软件有限公司的 AMapNaviKit 11.3.100（含地图）、AMapSearchKit 9.8.1、
+AMapFoundationKit 1.9.4（无 IDFA）。SDK 使用高德官方服务协议与隐私政策；
+不适用本项目的 PolyForm 许可。SDK 二进制从官方获取，对应隐私清单随 App 打包。
+
+- https://lbs.amap.com/home/terms/
+- https://lbs.amap.com/pages/privacy/
+- https://lbs.amap.com/api/ios-navi-sdk/download/

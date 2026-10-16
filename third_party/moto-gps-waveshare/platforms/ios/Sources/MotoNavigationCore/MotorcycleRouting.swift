@@ -76,21 +76,38 @@ public struct MotorcycleRouteOptions: Codable, Equatable, Sendable {
     public var region: String
     public var registration: MotorcycleRegistration
     public var avoidHighways: Bool
+    public var avoidElevatedRoads: Bool
     public var avoidTolls: Bool
     public var avoidFerries: Bool
     public var avoidAreas: [MotorcycleAvoidArea]
     public var waypoints: [WGS84Point]
 
     public init(registration: MotorcycleRegistration = .nanjingSuburban,
-                avoidHighways: Bool = true, avoidTolls: Bool = false, avoidFerries: Bool = false,
+                avoidHighways: Bool = true, avoidElevatedRoads: Bool = true,
+                avoidTolls: Bool = false, avoidFerries: Bool = false,
                 avoidAreas: [MotorcycleAvoidArea] = [], waypoints: [WGS84Point] = []) {
         region = "nanjing"
         self.registration = registration
         self.avoidHighways = avoidHighways
+        self.avoidElevatedRoads = avoidElevatedRoads
         self.avoidTolls = avoidTolls
         self.avoidFerries = avoidFerries
         self.avoidAreas = avoidAreas
         self.waypoints = waypoints
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        region = try values.decode(String.self, forKey: .region)
+        registration = try values.decode(MotorcycleRegistration.self, forKey: .registration)
+        avoidHighways = try values.decode(Bool.self, forKey: .avoidHighways)
+        // A legacy response did not check elevated roads. Preference storage
+        // migrates separately so an old assessment cannot claim the new check.
+        avoidElevatedRoads = try values.decodeIfPresent(Bool.self, forKey: .avoidElevatedRoads) ?? false
+        avoidTolls = try values.decode(Bool.self, forKey: .avoidTolls)
+        avoidFerries = try values.decode(Bool.self, forKey: .avoidFerries)
+        avoidAreas = try values.decode([MotorcycleAvoidArea].self, forKey: .avoidAreas)
+        waypoints = try values.decode([WGS84Point].self, forKey: .waypoints)
     }
 
     public var isValid: Bool {
@@ -119,6 +136,7 @@ public struct MotorcycleRouteOptions: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case region, registration, waypoints
         case avoidHighways = "avoid_highways"
+        case avoidElevatedRoads = "avoid_elevated_roads"
         case avoidTolls = "avoid_tolls"
         case avoidFerries = "avoid_ferries"
         case avoidAreas = "avoid_areas"
@@ -170,6 +188,8 @@ public struct MotorcycleRouteAssessment: Codable, Equatable, Sendable {
     // instead of silently accepting an assessment without area checks.
     public let restrictionAreas: [MotorcycleRestrictionArea]?
     public let cameraDataStatus: String?
+    public let restrictionConflicts: [String]?
+    public var hasRestrictionConflicts: Bool { !(restrictionConflicts?.isEmpty ?? true) }
 
     public func matches(_ options: MotorcycleRouteOptions) -> Bool {
         guard appliedOptions == options && coverage == "partial" && status == "review_required" &&
@@ -187,5 +207,6 @@ public struct MotorcycleRouteAssessment: Codable, Equatable, Sendable {
         case appliedOptions = "applied_options"
         case restrictionAreas = "restriction_areas"
         case cameraDataStatus = "camera_data_status"
+        case restrictionConflicts = "restriction_conflicts"
     }
 }

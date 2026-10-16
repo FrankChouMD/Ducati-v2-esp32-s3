@@ -74,7 +74,7 @@ class MotionLeanFusion {
     const MotionVector gyro = body(subtract(sample.gyro_dps, bias_));
     // Keep both filters on the same time constant so centripetal compensation
     // does not subtract a filtered turn rate from an unfiltered accelerometer.
-    const float smoothing = dt / (0.035F + dt);
+    const float smoothing = dt / (0.020F + dt);
     filtered_gyro_ = blend(filtered_gyro_, gyro, smoothing);
     filtered_accel_ = blend(filtered_accel_, body(sample.accel_mps2), smoothing);
     const MotionVector omega = multiply(filtered_gyro_, kRadians);

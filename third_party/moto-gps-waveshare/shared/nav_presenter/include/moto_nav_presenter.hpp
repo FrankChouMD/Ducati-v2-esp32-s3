@@ -19,6 +19,8 @@ class NavPresenter {
   NavPresenter& operator=(NavPresenter&&) = delete;
 
   void update(const NavSnapshot& snapshot);
+  // Local roll does not move map geometry or replace owned road strings.
+  void update_lean(const NavSnapshot& snapshot);
   [[nodiscard]] const moto_ui_state_t& ui_state() const;
 
   // Applies the last mapped state to the platform-independent LVGL UI API.

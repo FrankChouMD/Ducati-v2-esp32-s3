@@ -11,6 +11,7 @@ endif()
 add_library(moto_nav_ui STATIC
     assets/moto_font_nav_16.c
     assets/ducati_rear_e.c
+    assets/ducati_top.c
     assets/fonts/ducati_label_18.c
     assets/fonts/ducati_label_22.c
     assets/fonts/ducati_readout_32.c

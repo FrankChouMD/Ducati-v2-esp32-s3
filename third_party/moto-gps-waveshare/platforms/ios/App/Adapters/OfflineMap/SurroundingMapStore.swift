@@ -4,6 +4,7 @@
 // Inputs and scene geometry are GCJ-02; tile IDs identify Web Mercator z15 tiles.
 import Combine
 import Foundation
+import MotoNavigationCore
 
 struct MapTileID: Codable, Hashable, Sendable {
     let z: Int
@@ -637,6 +638,8 @@ final class SurroundingMapStore: ObservableObject {
 
     private static func httpLoader(baseURL: URL) -> MapTileCache.Loader {
         { tile in
+            // Preserve cached maps without sending requests to the unconfigured placeholder.
+            _ = try GatewayConfiguration.normalizedURL(baseURL.absoluteString)
             let url = baseURL.appendingPathComponent("v1/map/tiles/\(tile.z)/\(tile.x)/\(tile.y)")
             guard url.scheme == "https" || ["localhost", "127.0.0.1"].contains(url.host ?? "") else {
                 throw SurroundingMapError.invalidResponse

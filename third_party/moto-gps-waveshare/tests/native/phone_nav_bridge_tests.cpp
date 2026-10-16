@@ -400,6 +400,59 @@ void test_ios_demo_token_attaches_context_and_live_route_clears_it() {
   CHECK(moto::test::phone_nav_bridge_last_road_polyline_count() == 0);
 }
 
+void test_remembered_geometry_survives_gps_loss_and_reconnect() {
+  moto::nav::NavPresenter presenter;
+  PhoneNavBridge bridge(presenter);
+  bridge.on_link_state(true);
+  moto::ble::NavigationSnapshot navigation;
+  navigation.state = moto::ble::NavigationState::Navigating;
+  navigation.flags = moto::ble::NavigationHasDestination | moto::ble::NavigationHasFix |
+                     moto::ble::NavigationHasRouteView | moto::ble::NavigationHasNextManeuver;
+  navigation.route_token = 177;
+  navigation.route_generation = 2;
+  navigation.heading_cdeg = 9'000;
+  navigation.speed_deci_kph = 360;
+  navigation.distance_to_maneuver_m = 137;
+  navigation.maneuver = moto::ble::Maneuver::Right;
+  moto::ble::RouteGeometry geometry;
+  geometry.route_token = navigation.route_token;
+  geometry.route_generation = navigation.route_generation;
+  geometry.total_point_count = 2;
+  geometry.view_origin = {31'900'000, 118'700'000};
+  geometry.points = {geometry.view_origin, {31'900'100, 118'700'200}};
+  CHECK(bridge.on_message(make_message(geometry, 1)) == moto::ble::AckStatus::Ok);
+  CHECK(bridge.on_message(make_message(navigation, 2)) == moto::ble::AckStatus::Ok);
+  pump(bridge);
+  const auto last = presenter.ui_state();
+  CHECK(last.route_point_count == 2);
+
+  navigation.state = moto::ble::NavigationState::Acquiring;
+  navigation.flags = moto::ble::NavigationHasDestination | moto::ble::NavigationHasRouteView |
+                     moto::ble::NavigationGnssStale;
+  navigation.speed_deci_kph = 0;
+  CHECK(bridge.on_message(make_message(navigation, 3)) == moto::ble::AckStatus::Ok);
+  pump(bridge);
+  CHECK(presenter.ui_state().has_usable_fix == 0);
+  CHECK(presenter.ui_state().has_destination == 1);
+  CHECK(presenter.ui_state().route_point_count == 2);
+  CHECK(presenter.ui_state().route_points[1].x == last.route_points[1].x);
+  CHECK(presenter.ui_state().route_points[1].y == last.route_points[1].y);
+  CHECK(presenter.ui_state().distance_to_maneuver_m == 0);
+  // The phone can resend the remembered window even after a BLE reconnection.
+  bridge.on_link_state(false);
+  bridge.on_link_state(true);
+  CHECK(bridge.on_message(make_message(geometry, 4)) == moto::ble::AckStatus::Ok);
+  CHECK(bridge.on_message(make_message(navigation, 5)) == moto::ble::AckStatus::Ok);
+  pump(bridge);
+  CHECK(presenter.ui_state().has_usable_fix == 0);
+  CHECK(presenter.ui_state().route_point_count == 2);
+  navigation.flags = 0;
+  CHECK(bridge.on_message(make_message(navigation, 6)) == moto::ble::AckStatus::Ok);
+  pump(bridge);
+  CHECK(presenter.ui_state().has_destination == 0);
+  CHECK(presenter.ui_state().route_point_count == 0);
+}
+
 void test_map_scene_atomically_replaces_roads_and_buildings_at_capacity() {
   moto::test::reset_phone_nav_bridge_probe();
   moto::nav::NavPresenter presenter;
@@ -635,6 +688,7 @@ int main() {
   test_music_capability_state_and_touch_commands();
   test_demo_uses_the_production_presenter_path();
   test_ios_demo_token_attaches_context_and_live_route_clears_it();
+  test_remembered_geometry_survives_gps_loss_and_reconnect();
   test_map_scene_atomically_replaces_roads_and_buildings_at_capacity();
   test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored();
   test_local_lean_updates_without_heading_motion_and_survives_phone_updates();

@@ -13,6 +13,10 @@
 #include "motion_heading_sensor.h"
 #include "phone_nav_bridge.h"
 
+#ifdef DUCATI_DISPLAY_BENCHMARK
+extern "C" void ducati_display_benchmark();
+#endif
+
 // Ducati V2 integration: only the dedicated 2.16 target selects this intro.
 #if defined(DUCATI_BOOT_ANIMATION)
 #include "ducati_boot_animation.h"
@@ -204,6 +208,9 @@ extern "C" void app_main(void) {
              esp_err_to_name(ble_result));
   }
 
+#ifdef DUCATI_DISPLAY_BENCHMARK
+  ducati_display_benchmark();
+#endif
   static MotionHeadingSensor motion_sensor;
   const esp_err_t motion_result = motion_sensor.start(update_motion_heading,
                                                       &phone_bridge);

@@ -2,7 +2,7 @@
 
 # iPhone 伴侣 App
 
-无需自行编译的用户可使用[IPA 安装方式](../../docs/IOS_SIDELOAD.md)。0.3.1 起可在 App 的“网关设置”中保存自己的 HTTPS 地址，即时生效并在重启后保留。
+本分支 0.4.6 使用高德 iOS SDK，搜索、算路与导航无需自建网站。完整配置步骤见[原生 SDK 接入](../../../../docs/IOS_AMAP_SDK.md)。无签名产物仍可使用[IPA 安装方式](../../docs/IOS_SIDELOAD.md)重签。
 
 面向首次安装的逐步图形界面操作见[DIY 教程：安装到 iPhone](../../docs/WAVESHARE_DIY_GUIDE.md#4-把-app-安装到-iphone)。
 日常功能见[使用说明书](../../docs/USER_MANUAL.md)，自建服务见[网关教程](../../docs/GATEWAY_SETUP.md)。
@@ -19,14 +19,16 @@ iOS 17+；源码工程由 XcodeGen 生成。Swift Package 使用 tools-version 6
 说明与界面效果预览见[本仓库手机 UI 记录](../../../../docs/IOS_UI.md)。
 该预览按 SwiftUI 布局重绘，不是 Xcode 模拟器截图。2026-10-16 已使用 Xcode 26.2 完成
 iPhone arm64 Release 构建及未签名 IPA 0.3.1 (6) 校验，导航核心 20 项测试通过。
-已识别连接的 iPhone，签名安装及真机功能验收尚未完成。默认网关仍为占位地址，真实导航需配置自己的服务。
+0.4.6 (13) 已签名安装并启动于连接的 iPhone 17 Pro Max，79 项 App 单测通过。
+配套圆屏固件在 GPS 暂缺时保留最后一次有效线路，顶部显示“等待定位”，定位恢复后自动更新；
+相关 LVGL 渲染、状态传递与 BLE 测试通过，固件已烧录。实际道路导航尚待真机验收。
+真实导航需在“高德 SDK 设置”中保存与 App Bundle ID 匹配的 iOS Key 并同意隐私说明。
 
-随后接入[南京骑行辅助规则](../../../../docs/NANJING_MOTORCYCLE_NAVIGATION.md)：首页和路线页进入
-“南京骑行”，默认南京郊区登记号牌，可编辑避让区域与途经点。新版本要求网关支持规则扩展；
-预览页显示规则覆盖范围，并在核对路线后开启开始按钮。已收录的禁行冲突会阻止下发导航；
-已接入摩途官网南京 124 点禁外摩图层：郊区登记类型自动避让并复查穿区，主城区登记不套用该区域。
-路线地图显示对应禁行区，新手机端拒绝缺少区域检查信息的旧网关响应。
-规则覆盖仍不完整，电子眼显示为未加载。历史 UI 效果图不包含本次新增入口和区域图层。
+0.4.4 按用户要求移除自动限摩检查：区内起终点、途经点、穿区路线及桥隧不再由本地名单拦截。
+路线页不再显示限摩图层、评估卡或确认开关，选好有效路线后直接点击“开始导航”。
+首页和路线页的“骑行设置”保留避开高速 / 高架 / 轮渡、少收费、自定义区域及途经点。
+高架避让默认开启，检查完整 Navi 路线及偏航新路线；无法满足时可以在该设置页调整。
+旧南京规则与数据仅保留在历史网关实现中，见[历史规则记录](../../../../docs/NANJING_MOTORCYCLE_NAVIGATION.md)。
 
 截至 2026-09-16，原生界面使用 `NavigationStack`、系统列表与表单组织“出发 → 路线 → 导航中”
 流程；首页集中展示搜索、最近地点、圆屏连接、地图下载、演示和隐私入口。可预览最多三条
@@ -44,21 +46,12 @@ Release 归档、单测通过不等于公开发布或完成实车验收。自研
 
 ## 设置并生成工程
 
-1. 先部署自己的 [HTTPS 网关](../../backend/README.md)。
-   新地图接口依赖服务端安装依赖和配置地图源；仓库与官网不提供免费公共网关。
-2. 在 `project.yml` 修改 `MOTOGPSGatewayBaseURL` 为自己的 HTTPS 地址，保留结尾 `/`。
-   默认 `https://example.invalid/moto-gps/api/` 不可用，不能用它验收真实搜索/导航。
-3. 将三个 `PRODUCT_BUNDLE_IDENTIFIER` 改为自己可用且唯一的标识，并设置自己的
-   `DEVELOPMENT_TEAM`（也可以生成后在 Xcode 的 Signing & Capabilities 里选择）。
-4. 安装 XcodeGen，在此目录执行：
-
-```sh
-xcodegen generate
-open MotoGPS.xcodeproj
-```
-
-`project.yml` 是配置来源，生成时会更新 `App/Info.plist`；只改 plist 后重新生成会被覆盖。
-上面的 `open` 只由使用者在准备安装时执行；自动构建无需启动 Xcode 图形界面。
+在本仓库根目录执行 `python3 tools/setup_amap_ios_sdk.py`，编辑生成的
+`platforms/ios/Local.xcconfig`（本目录）设置自己的 Bundle ID 与 Team。
+然后在本目录执行 `xcodegen generate` 并打开 `MotoGPS.xcodeproj`。
+使用与 Bundle ID 匹配的高德 iOS Key；详见[构建与首次使用](../../../../docs/IOS_AMAP_SDK.md#构建与首次使用)。
+`Local.xcconfig` 不进 Git，也不会在重新生成工程时被覆盖。SDK 二进制由脚本校验下载。
+可选 OSM 底图网关在 App 设置内配置，不影响搜索、算路和导航。
 
 ## 安装自己的手机
 
@@ -92,8 +85,9 @@ Apple Music 功能需用户授权，并按系统播放器状态工作。只支�
 `DataUseView` 提供无需连接即可阅读的“隐私与数据”说明。地图下载目录排除系统备份；
 最近地点和已保存外设标识等本地设置可能随系统备份保留。“断开”不等于删除外设记录。
 
-位置和搜索经网关发送到高德，在线瓦片请求可透露区域；代理日志可能保留 IP、查询词及位置
-参数。手机路线预览使用 MapKit，音乐使用系统播放器，周边背景来自 OSM / Protomaps。
+位置和搜索由高德 SDK 直接处理；用户路线偏好在本机检查。可选底图请求可能在网关留下 IP、
+时间与地图区域。手机路线预览使用高德，区域编辑器与城市范围预览仍用 MapKit，
+音乐使用系统播放器，圆屏周边背景来自 OSM / Protomaps。
 不能将无广告、无账号登录写成零采集。更换网关后，应同步修改 `DataUseView` 中的服务说明，
 按真实部署核对日志与保留策略，并复核隐私清单和 App Store Connect 的隐私回答。
 

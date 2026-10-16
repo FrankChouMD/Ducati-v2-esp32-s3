@@ -98,6 +98,49 @@ void test_display_pages_map_without_changing_navigation_mode() {
   }
 }
 
+void test_location_loss_keeps_the_navigation_session() {
+  NavPresenter presenter;
+  NavSnapshot snapshot;
+  snapshot.state = NavState::Navigating;
+  snapshot.has_destination = true;
+  snapshot.route_id = "active-sdk-route";
+  snapshot.has_usable_fix = true;
+  snapshot.gnss_stale = false;
+  snapshot.has_route_view = true;
+  snapshot.route_view_point_count = 2;
+  presenter.update(snapshot);
+  const auto route_identity = presenter.ui_state().route_identity;
+  CHECK(presenter.ui_state().has_usable_fix == 1);
+  CHECK(presenter.ui_state().has_destination == 1);
+  CHECK(presenter.ui_state().route_point_count == 2);
+
+  snapshot.gnss_stale = true;
+  snapshot.has_route_view = false;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().has_usable_fix == 0);
+  CHECK(presenter.ui_state().has_destination == 1);
+  CHECK(presenter.ui_state().route_identity == route_identity);
+  CHECK(presenter.ui_state().route_point_count == 0);
+  CHECK(presenter.ui_state().route_request_in_flight == 0);
+
+  snapshot.gnss_stale = false;
+  snapshot.has_usable_fix = false; // A fresh but inaccurate fix also waits.
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().has_usable_fix == 0);
+  CHECK(presenter.ui_state().has_destination == 1);
+
+  snapshot.has_usable_fix = true;
+  snapshot.has_route_view = true;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().has_usable_fix == 1);
+  CHECK(presenter.ui_state().route_point_count == 2);
+  CHECK(presenter.ui_state().route_identity == route_identity);
+
+  presenter.update(NavSnapshot{});
+  CHECK(presenter.ui_state().has_destination == 0);
+  CHECK(presenter.ui_state().route_point_count == 0);
+}
+
 void test_all_maneuvers() {
   struct ManeuverCase {
     ManeuverType input;
@@ -228,7 +271,7 @@ void test_heading_up_route_projection_keeps_rider_fixed() {
   CHECK(state.route_point_count == 2);
   constexpr int rider_x = MOTO_UI_CANVAS_WIDTH / 2;
   constexpr int rider_y =
-      ((MOTO_UI_SQUARE_SCREEN ? 318 : 196) * MOTO_UI_CANVAS_HEIGHT + 180) / 360;
+      MOTO_UI_SQUARE_SCREEN ? MOTO_UI_CANVAS_HEIGHT / 2 : (196 * MOTO_UI_CANVAS_HEIGHT + 180) / 360;
   CHECK(state.route_points[0].x == rider_x);
   CHECK(state.route_points[0].y == rider_y);
   // Facing east means an eastbound route is drawn straight ahead/up while
@@ -254,7 +297,7 @@ void test_non_finite_heading_keeps_map_projection_finite() {
   CHECK(state.route_point_count == 2);
   constexpr int rider_x = MOTO_UI_CANVAS_WIDTH / 2;
   constexpr int rider_y =
-      ((MOTO_UI_SQUARE_SCREEN ? 318 : 196) * MOTO_UI_CANVAS_HEIGHT + 180) / 360;
+      MOTO_UI_SQUARE_SCREEN ? MOTO_UI_CANVAS_HEIGHT / 2 : (196 * MOTO_UI_CANVAS_HEIGHT + 180) / 360;
   CHECK(state.route_points[0].x == rider_x);
   CHECK(state.route_points[0].y == rider_y);
 }
@@ -480,6 +523,36 @@ void test_lean_validity_does_not_fabricate_zero_or_pass_nan() {
   CHECK(!presenter.ui_state().lean_valid);
 }
 
+void test_lean_only_update_preserves_projected_navigation() {
+  NavPresenter presenter;
+  NavSnapshot snapshot;
+  snapshot.state = NavState::Navigating;
+  snapshot.has_route_view = true;
+  snapshot.route_id = "lean-independent";
+  snapshot.route_view_origin = {31.2304, 121.4737};
+  snapshot.route_view_point_count = 2;
+  snapshot.route_view_points[0] = snapshot.route_view_origin;
+  snapshot.route_view_points[1] = {31.2314, 121.4737};
+  snapshot.has_next_maneuver = true;
+  snapshot.next_maneuver.road_name = "Existing road";
+  presenter.update(snapshot);
+  const auto previous = presenter.ui_state();
+
+  // A lean-only update must not replace the retained route or owned labels.
+  NavSnapshot lean_only;
+  lean_only.lean_valid = true;
+  lean_only.lean_deg = -32.5F;
+  presenter.update_lean(lean_only);
+  const auto& current = presenter.ui_state();
+  CHECK(current.lean_valid && current.lean_deg == -32.5F);
+  CHECK(current.route_identity == previous.route_identity);
+  CHECK(current.route_point_count == previous.route_point_count);
+  CHECK(std::memcmp(current.route_points, previous.route_points, sizeof(current.route_points)) == 0);
+  CHECK(current.road_name == previous.road_name);
+  CHECK(std::strcmp(current.road_name, "Existing road") == 0);
+  CHECK(current.mode == previous.mode);
+}
+
 #ifdef MOTO_NAV_UI_TEST_STUB
 void test_apply_to_lvgl_uses_last_owned_state() {
   moto::test::reset_nav_ui_probe();
@@ -505,6 +578,7 @@ void test_apply_to_lvgl_uses_last_owned_state() {
 
 int main() {
   test_all_navigation_and_network_states();
+  test_location_loss_keeps_the_navigation_session();
   test_display_pages_map_without_changing_navigation_mode();
   test_all_maneuvers();
   test_all_traffic_levels();
@@ -517,6 +591,7 @@ int main() {
   test_missing_or_incomplete_geometry_stays_empty();
   test_presenter_owns_road_name_storage();
   test_lean_validity_does_not_fabricate_zero_or_pass_nan();
+  test_lean_only_update_preserves_projected_navigation();
 #ifdef MOTO_NAV_UI_TEST_STUB
   test_apply_to_lvgl_uses_last_owned_state();
 #endif

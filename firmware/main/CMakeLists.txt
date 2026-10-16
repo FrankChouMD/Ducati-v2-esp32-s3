@@ -14,6 +14,7 @@ idf_component_register(
         "${MOTO_UPSTREAM_ROOT}/shared/nav_presenter/src/moto_nav_presenter.cpp"
         "${MOTO_UPSTREAM_ROOT}/shared/nav_ui/assets/moto_font_nav_16.c"
         "${MOTO_UPSTREAM_ROOT}/shared/nav_ui/assets/ducati_rear_e.c"
+        "${MOTO_UPSTREAM_ROOT}/shared/nav_ui/assets/ducati_top.c"
         "${MOTO_UPSTREAM_ROOT}/shared/nav_ui/assets/fonts/ducati_label_18.c"
         "${MOTO_UPSTREAM_ROOT}/shared/nav_ui/assets/fonts/ducati_label_22.c"
         "${MOTO_UPSTREAM_ROOT}/shared/nav_ui/assets/fonts/ducati_readout_32.c"
@@ -36,6 +37,12 @@ idf_component_register(
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE DUCATI_BOOT_ANIMATION=1)
+
+option(DUCATI_DISPLAY_BENCHMARK "Run display timing benchmark at boot" OFF)
+if(DUCATI_DISPLAY_BENCHMARK)
+    target_sources(${COMPONENT_LIB} PRIVATE "../../tools/display_refresh_benchmark.cpp")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE DUCATI_DISPLAY_BENCHMARK=1)
+endif()
 
 set(DUCATI_IMU_SCREEN_RIGHT_AXIS "1" CACHE STRING "IMU axis toward screen right: 1/-1=X, 2/-2=Y")
 if(NOT DUCATI_IMU_SCREEN_RIGHT_AXIS MATCHES "^-?[12]$")

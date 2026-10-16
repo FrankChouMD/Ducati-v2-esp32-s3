@@ -99,6 +99,10 @@
         "avoid_highways": {
           "type": "boolean"
         },
+        "avoid_elevated_roads": {
+          "type": "boolean",
+          "description": "Check typed links in the iOS SDK. Legacy Web routing rejects true."
+        },
         "avoid_tolls": {
           "type": "boolean"
         },

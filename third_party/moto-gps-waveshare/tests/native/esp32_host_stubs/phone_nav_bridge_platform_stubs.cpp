@@ -97,6 +97,10 @@ extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t* state) {
   moto_nav_ui_set_state(state);
 }
 
+extern "C" void moto_nav_ui_set_lean_state(const moto_ui_state_t* state) {
+  moto_nav_ui_set_motion_state(state);
+}
+
 extern "C" void moto_nav_ui_set_phone_connection(
     moto_ui_phone_connection_t connection) {
   const std::lock_guard<std::mutex> lock(probe_mutex);

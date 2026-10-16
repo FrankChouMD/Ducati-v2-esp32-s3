@@ -9,6 +9,9 @@
 
 #include "lvgl.h"
 #include "ducati_rear_e.h"
+#if MOTO_UI_SQUARE_SCREEN
+#include "ducati_top.h"
+#endif
 #include "fonts/ducati_instrument_fonts.h"
 
 // Ducati V2 integration: the generated font is compiled as C. Keep the
@@ -57,6 +60,8 @@ enum class LifecycleVisual : std::uint8_t {
     Connected,
     Ready,
     Planning,
+    Locating,
+    SyncingRoute,
 };
 
 constexpr int px(int value) {
@@ -82,7 +87,6 @@ struct LeanGraphic {
     lv_obj_t *reference = nullptr;
     float angle_deg = 0.0F;
     bool valid = false;
-    bool navigation_marker = false;
 };
 
 struct Ui {
@@ -146,6 +150,7 @@ struct Ui {
     lv_obj_t *nav_speed_gauge = nullptr;
     lv_obj_t *nav_speed_value = nullptr;
     std::uint16_t nav_speed_kph = 0;
+    bool nav_speed_available = true;
     lv_obj_t *nav_lean_value = nullptr;
     LeanGraphic nav_lean_graphic;
 
@@ -165,7 +170,9 @@ struct Ui {
     LifecycleVisual lifecycle_target = LifecycleVisual::Hidden;
     std::uint16_t lifecycle_phase_deg = 0;
     bool lifecycle_success_active = false;
-    bool navigation_has_guidance = false;
+    bool navigation_has_route_display = false;
+    bool navigation_has_destination = false;
+    bool navigation_has_usable_fix = false;
     bool navigation_route_request_in_flight = false;
 
     lv_obj_t *speed_arc = nullptr;
@@ -1119,7 +1126,9 @@ void draw_connection_symbol(lv_event_t *event) {
     }
 
     if(ui.lifecycle_visual == LifecycleVisual::Ready ||
-       ui.lifecycle_visual == LifecycleVisual::Planning) {
+       ui.lifecycle_visual == LifecycleVisual::Planning ||
+       ui.lifecycle_visual == LifecycleVisual::Locating ||
+       ui.lifecycle_visual == LifecycleVisual::SyncingRoute) {
         const lv_point_precise_t route[] = {
             {static_cast<lv_value_precise_t>(area.x1 + px(34)),
              static_cast<lv_value_precise_t>(area.y1 + px(113))},
@@ -1149,7 +1158,7 @@ void draw_connection_symbol(lv_event_t *event) {
         draw_disc(layer, route[3].x, route[3].y, px(7), kWhite,
                   LV_OPA_COVER);
 
-        if(ui.lifecycle_visual == LifecycleVisual::Planning) {
+        if(ui.lifecycle_visual != LifecycleVisual::Ready) {
             // A single travelling bead communicates progress without a
             // processor-heavy full-screen animation.
             const double t =
@@ -1234,6 +1243,16 @@ void apply_lifecycle_content(LifecycleVisual visual) {
             title = "BUILDING ROUTE";
             subtitle = "正在规划路线";
             break;
+        case LifecycleVisual::Locating:
+            kicker = "MOTO GPS / NAVIGATION";
+            title = "WAITING FOR GPS";
+            subtitle = "等待手机定位";
+            break;
+        case LifecycleVisual::SyncingRoute:
+            kicker = "MOTO GPS / NAVIGATION";
+            title = "SYNCING ROUTE";
+            subtitle = "正在获取路线";
+            break;
         case LifecycleVisual::Hidden:
             break;
     }
@@ -1245,7 +1264,9 @@ void apply_lifecycle_content(LifecycleVisual visual) {
                                 visual == LifecycleVisual::Connected
                                     ? kGreen : kSoft,
                                 0);
-    lv_obj_invalidate(ui.nav_lifecycle_symbol);
+    // Refresh the whole overlay when its meaning changes. Otherwise a partial
+    // flush can clear unchanged header/icon pixels during a state transition.
+    lv_obj_invalidate(ui.nav_lifecycle);
 }
 
 void lifecycle_fade_in();
@@ -1329,11 +1350,18 @@ LifecycleVisual desired_lifecycle_visual() {
     if(ui.lifecycle_success_active) {
         return LifecycleVisual::Connected;
     }
-    if(ui.navigation_has_guidance) {
+    if(ui.navigation_has_route_display) {
         return LifecycleVisual::Hidden;
     }
     if(ui.navigation_route_request_in_flight) {
         return LifecycleVisual::Planning;
+    }
+    // A missing BLE geometry window is not an ended navigation session.
+    // Keep the destination alive through stale fixes and route replacement.
+    if(ui.navigation_has_destination) {
+        return ui.navigation_has_usable_fix
+                   ? LifecycleVisual::SyncingRoute
+                   : LifecycleVisual::Locating;
     }
     return LifecycleVisual::Ready;
 }
@@ -1380,6 +1408,7 @@ void set_navigation_guidance_visible(bool visible) {
 void update_nav_status(const moto_ui_state_t *state) {
     const char *text = "";
     lv_color_t color = kQuiet;
+    lv_obj_set_style_text_font(ui.nav_status, &ducati_label_18, 0);
     if(ui.demo_active) {
         lv_label_set_text(ui.nav_status, "DEMO RIDE");
         lv_obj_set_style_text_color(ui.nav_status, kWhite, 0);
@@ -1389,6 +1418,13 @@ void update_nav_status(const moto_ui_state_t *state) {
         // Empty navigation states are rendered by the full lifecycle surface,
         // never by a tiny diagnostic caption floating in a black screen.
         lv_label_set_text(ui.nav_status, "");
+        return;
+    }
+    if(state->has_destination && !state->has_usable_fix &&
+       state->mode != MOTO_UI_ARRIVED && state->mode != MOTO_UI_REROUTING) {
+        lv_obj_set_style_text_font(ui.nav_status, &moto_font_nav_16, 0);
+        lv_label_set_text(ui.nav_status, "等待定位");
+        lv_obj_set_style_text_color(ui.nav_status, kAmber, 0);
         return;
     }
     switch(state->mode) {
@@ -1415,8 +1451,7 @@ void draw_lean_graphic(lv_event_t *event) {
     // All strokes stay inside this object's bounds even at +/-90 degrees.
     const double scale = std::min(width / 70.0, height / 44.0);
     const double pivot_x = area.x1 + width / 2.0;
-    const double pivot_y = graphic->navigation_marker ? MOTO_UI_NAV_VEHICLE_Y :
-                                                         area.y1 + height * 0.78;
+    const double pivot_y = area.y1 + height * 0.78;
     const auto point = [&](double x, double y) -> lv_point_precise_t {
         return {
             static_cast<lv_value_precise_t>(pivot_x + scale * x),
@@ -1430,21 +1465,13 @@ void draw_lean_graphic(lv_event_t *event) {
                       LV_OPA_COVER, points, 2);
     };
     // Fixed ground and upright reference: these never follow the motorcycle.
-    if(!graphic->navigation_marker) {
-        segment(-25, 1, 25, 1, kGraphite, 1.0);
-        for(int y = -34; y < 0; y += 5)
-            segment(0, y, 0, y + 2, kGraphite, 1.0);
-    }
+    segment(-25, 1, 25, 1, kGraphite, 1.0);
+    for(int y = -34; y < 0; y += 5)
+        segment(0, y, 0, y + 2, kGraphite, 1.0);
     if(!graphic->valid) {
         // No upright motorcycle is shown when the sensor has no valid angle.
         segment(-3, -18, 3, -12, kQuiet, 1.5);
         segment(-3, -12, 3, -18, kQuiet, 1.5);
-        if(graphic->navigation_marker) {
-            // Location is still known when roll is unavailable. A position
-            // dot preserves the map anchor without implying an upright bike.
-            draw_disc(layer, static_cast<int>(pivot_x), static_cast<int>(pivot_y),
-                       px(3), kWhite, LV_OPA_COVER);
-        }
         return;
     }
 
@@ -1482,14 +1509,19 @@ void update_lean(lv_obj_t *label, LeanGraphic& graphic, const moto_ui_state_t *s
         else std::snprintf(text, sizeof(text), "%s %d°",
                            state->lean_deg < 0.0F ? "L" : "R", angle);
     }
-    if(std::strcmp(lv_label_get_text(label), text) != 0) lv_label_set_text(label, text);
-    lv_obj_set_style_text_color(label, valid ? kWhite : kQuiet, 0);
+    const bool text_changed = std::strcmp(lv_label_get_text(label), text) != 0;
+    const bool validity_changed = graphic.valid != valid;
+    if(text_changed) lv_label_set_text(label, text);
+    if(validity_changed) lv_obj_set_style_text_color(label, valid ? kWhite : kQuiet, 0);
     const float angle = valid ? state->lean_deg : 0.0F;
     if(graphic.object != nullptr && (graphic.valid != valid || graphic.angle_deg != angle)) {
         graphic.valid = valid;
         graphic.angle_deg = angle;
         lv_obj_invalidate(graphic.object);
         if(graphic.reference != nullptr) lv_obj_invalidate(graphic.reference);
+        // Clear the complete local readout (old glyphs and rotated tail) before
+        // a synchronous hardware refresh, without dirtying the map or screen.
+        lv_obj_invalidate(lv_obj_get_parent(label));
     }
 }
 
@@ -1567,8 +1599,8 @@ void draw_nav_lean_reference(lv_event_t *event) {
 void create_nav_lean_readout(lv_obj_t *parent) {
     lv_obj_t *panel = lv_obj_create(parent);
     lv_obj_remove_style_all(panel);
-    lv_obj_set_pos(panel, px(250), px(253));
-    lv_obj_set_size(panel, px(98), px(78));
+    lv_obj_set_pos(panel, px(212), px(236));
+    lv_obj_set_size(panel, px(136), px(96));
     lv_obj_set_style_bg_color(panel, kBlack, 0);
     lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
@@ -1576,16 +1608,26 @@ void create_nav_lean_readout(lv_obj_t *parent) {
     lv_obj_add_flag(panel, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(panel, lean_calibration_event, LV_EVENT_LONG_PRESSED, nullptr);
 
+    ui.nav_lean_graphic.object = lv_obj_create(panel);
+    lv_obj_remove_style_all(ui.nav_lean_graphic.object);
+    lv_obj_set_pos(ui.nav_lean_graphic.object, 0, 0);
+    lv_obj_set_size(ui.nav_lean_graphic.object, px(84), px(88));
+    lv_obj_remove_flag(ui.nav_lean_graphic.object, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(ui.nav_lean_graphic.object, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(ui.nav_lean_graphic.object, draw_lean_graphic,
+                        LV_EVENT_DRAW_MAIN_END, &ui.nav_lean_graphic);
     lv_obj_t *title = make_label(panel, &ducati_label_18, kRed, "LEAN");
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
-    ui.nav_lean_value = make_label(panel, &ducati_readout_56, kQuiet, "--°");
-    lv_obj_set_pos(ui.nav_lean_value, 0, px(23));
-    lv_obj_set_width(ui.nav_lean_value, px(98));
+    lv_obj_set_pos(title, px(82), px(18));
+    lv_obj_set_width(title, px(54));
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    ui.nav_lean_value = make_label(panel, &ducati_readout_32, kQuiet, "--°");
+    lv_obj_set_pos(ui.nav_lean_value, px(80), px(38));
+    lv_obj_set_width(ui.nav_lean_value, px(56));
     lv_obj_set_style_text_align(ui.nav_lean_value, LV_TEXT_ALIGN_CENTER, 0);
     ui.nav_lean_graphic.reference = lv_obj_create(panel);
     lv_obj_remove_style_all(ui.nav_lean_graphic.reference);
-    lv_obj_set_pos(ui.nav_lean_graphic.reference, 0, px(66));
-    lv_obj_set_size(ui.nav_lean_graphic.reference, px(98), px(11));
+    lv_obj_set_pos(ui.nav_lean_graphic.reference, 0, px(85));
+    lv_obj_set_size(ui.nav_lean_graphic.reference, px(136), px(11));
     lv_obj_remove_flag(ui.nav_lean_graphic.reference, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui.nav_lean_graphic.reference, draw_nav_lean_reference,
                         LV_EVENT_DRAW_MAIN_END, &ui.nav_lean_graphic);
@@ -1673,10 +1715,14 @@ void create_nav_speed_readout(lv_obj_t *parent) {
 }
 
 void update_nav_speed_readout(const moto_ui_state_t *state) {
-    if(ui.nav_speed_value == nullptr || state->speed_kph == ui.nav_speed_kph) return;
+    const bool available = ui.demo_active || !state->has_destination || state->has_usable_fix;
+    if(ui.nav_speed_value == nullptr ||
+       (state->speed_kph == ui.nav_speed_kph && available == ui.nav_speed_available)) return;
     ui.nav_speed_kph = state->speed_kph;
+    ui.nav_speed_available = available;
     char text[8];
-    std::snprintf(text, sizeof(text), "%u", static_cast<unsigned>(state->speed_kph));
+    if(available) std::snprintf(text, sizeof(text), "%u", static_cast<unsigned>(state->speed_kph));
+    else std::snprintf(text, sizeof(text), "--");
     lv_label_set_text(ui.nav_speed_value, text);
     lv_obj_invalidate(ui.nav_speed_gauge);
 }
@@ -1693,17 +1739,22 @@ void update_navigation(const moto_ui_state_t *state) {
     update_maneuver(state->maneuver);
     update_nav_status(state);
 
-    // Never suggest "go straight for 0 m" while there is no route. Waiting is
-    // a connection state, not actionable navigation guidance.
-    const bool has_guidance = ui.demo_active ||
-                              state->mode == MOTO_UI_ARRIVED ||
-                              state->route_point_count >= 2;
-    ui.navigation_has_guidance = has_guidance;
+    // A remembered route remains visible without GPS, while live turn/distance
+    // readouts wait for a usable fix. Only an empty map needs the full overlay.
+    const bool has_route_display = ui.demo_active ||
+                                   state->mode == MOTO_UI_ARRIVED ||
+                                   state->route_point_count >= 2;
+    const bool has_guidance = has_route_display &&
+                             (ui.demo_active || state->mode == MOTO_UI_ARRIVED || state->has_usable_fix);
+    ui.navigation_has_route_display = has_route_display;
+    ui.navigation_has_destination = state->has_destination != 0;
+    ui.navigation_has_usable_fix = state->has_usable_fix != 0;
     ui.navigation_route_request_in_flight =
         state->route_request_in_flight != 0;
     set_navigation_guidance_visible(has_guidance);
+    if(has_route_display) lv_obj_remove_flag(ui.nav_progress, LV_OBJ_FLAG_HIDDEN);
     refresh_lifecycle();
-    if(!has_guidance) return;
+    if(!has_route_display) return;
 
     char value[16];
     const char *unit = "m";
@@ -1742,7 +1793,7 @@ void update_navigation(const moto_ui_state_t *state) {
                                LV_PART_INDICATOR);
 #endif
 
-    if(state->speed_limit_kph > 0) {
+    if(has_guidance && state->speed_limit_kph > 0) {
         char limit[8];
         std::snprintf(limit, sizeof(limit), "%u",
                       static_cast<unsigned>(state->speed_limit_kph));
@@ -1905,21 +1956,18 @@ void create_navigation_page() {
                                                  kRouteMotionFrameMs,
                                                  nullptr);
 
+#if MOTO_UI_SQUARE_SCREEN
+    // A heading-up location marker is independent of the right-corner roll
+    // instrument. Its centre is the shared geographic projection origin.
+    ui.nav_marker = lv_image_create(ui.nav_map);
+    lv_image_set_src(ui.nav_marker, &ducati_top);
+    lv_obj_set_pos(ui.nav_marker,
+                   MOTO_UI_NAV_VEHICLE_X - ducati_top.header.w / 2,
+                   MOTO_UI_NAV_VEHICLE_Y - ducati_top.header.h / 2);
+    lv_obj_remove_flag(ui.nav_marker, LV_OBJ_FLAG_CLICKABLE);
+#else
     ui.nav_marker = lv_obj_create(ui.nav_map);
     lv_obj_remove_style_all(ui.nav_marker);
-#if MOTO_UI_SQUARE_SCREEN
-    // The same fixed contact point is used by NavPresenter for every map layer.
-    // This box contains the bike's complete rotation envelope, even at +/-90°.
-    lv_obj_set_size(ui.nav_marker, px(156), px(124));
-    lv_obj_set_pos(ui.nav_marker, MOTO_UI_NAV_VEHICLE_X - px(156) / 2, px(220));
-    lv_obj_remove_flag(ui.nav_marker, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(ui.nav_marker, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_add_event_cb(ui.nav_marker, lean_calibration_event, LV_EVENT_LONG_PRESSED, nullptr);
-    ui.nav_lean_graphic.object = ui.nav_marker;
-    ui.nav_lean_graphic.navigation_marker = true;
-    lv_obj_add_event_cb(ui.nav_marker, draw_lean_graphic,
-                        LV_EVENT_DRAW_MAIN_END, &ui.nav_lean_graphic);
-#else
     lv_obj_set_size(ui.nav_marker, px(35), px(37));
     lv_obj_set_pos(ui.nav_marker, px(163), px(177));
     lv_obj_clear_flag(ui.nav_marker, LV_OBJ_FLAG_CLICKABLE);
@@ -2441,13 +2489,21 @@ extern "C" void moto_nav_ui_set_state(const moto_ui_state_t *state) {
     }
 }
 
+extern "C" void moto_nav_ui_set_lean_state(const moto_ui_state_t *state) {
+    if(state == nullptr || ui.screen == nullptr || state->page != ui.page) return;
+    if(ui.page == MOTO_UI_PAGE_NAVIGATION)
+        update_lean(ui.nav_lean_value, ui.nav_lean_graphic, state);
+    else if(ui.page == MOTO_UI_PAGE_SPEED)
+        update_lean(ui.speed_lean_value, ui.speed_lean_graphic, state);
+}
+
 extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t *state) {
     if(state == nullptr || ui.screen == nullptr || state->page != ui.page) return;
+    moto_nav_ui_set_lean_state(state);
     // QMI8658 samples arrive at high frequency. Only the route polyline or
     // compass rose actually changes with yaw; labels, arcs and hidden pages
     // remain untouched so LVGL submits a small, bounded dirty region.
     if(ui.page == MOTO_UI_PAGE_NAVIGATION) {
-        update_lean(ui.nav_lean_value, ui.nav_lean_graphic, state);
 #if MOTO_UI_SQUARE_SCREEN
         update_nav_speed_readout(state);
 #endif
@@ -2456,8 +2512,6 @@ extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t *state) {
         update_route_geometry(state);
     } else if(ui.page == MOTO_UI_PAGE_COMPASS) {
         update_compass(state);
-    } else if(ui.page == MOTO_UI_PAGE_SPEED) {
-        update_lean(ui.speed_lean_value, ui.speed_lean_graphic, state);
     }
 }
 

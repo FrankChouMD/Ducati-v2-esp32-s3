@@ -90,9 +90,18 @@ struct MapDownloadsView: View {
     @State private var planningRoute = false
     @State private var planningError: String?
 
+    private var gatewayAvailable: Bool {
+        (try? GatewayConfiguration.normalizedURL(gatewayBaseURL.absoluteString)) != nil
+    }
+
     var body: some View {
         NavigationStack {
             List {
+                if !gatewayAvailable {
+                    Section {
+                        Text("尚未配置可选底图网关。已有缓存可继续使用；下载新底图需在高德 SDK 设置中配置底图网关。搜索与导航可正常使用。")
+                    }
+                }
                 Section {
                     Label {
                         VStack(alignment: .leading, spacing: 5) {
@@ -109,6 +118,7 @@ struct MapDownloadsView: View {
                     } label: {
                         Label("下载城市地图", systemImage: "building.2.crop.circle")
                     }
+                    .disabled(!gatewayAvailable)
                     .accessibilityIdentifier("map-download-city")
                     if route.count >= 2 {
                         Button(action: downloadRoute) {
@@ -120,7 +130,7 @@ struct MapDownloadsView: View {
                                 }
                             } icon: { Image(systemName: "arrow.triangle.turn.up.right.diamond") }
                         }
-                        .disabled(store.isDownloading || planningRoute)
+                        .disabled(store.isDownloading || planningRoute || !gatewayAvailable)
                         .accessibilityIdentifier("map-download-route")
                     }
                 } footer: {
@@ -147,7 +157,7 @@ struct MapDownloadsView: View {
                             Text("\(ByteCountFormatter.string(fromByteCount: pack.byteCount, countStyle: .file)) · \(pack.isComplete ? "已下载" : "尚未下载完成")")
                                 .font(.footnote).foregroundStyle(.secondary)
                             if !pack.isComplete && !store.isDownloading {
-                                Button("继续下载") { store.resume(pack) }.buttonStyle(.borderless)
+                                Button("继续下载") { store.resume(pack) }.buttonStyle(.borderless).disabled(!gatewayAvailable)
                             }
                         }
                         .padding(.vertical, 4)

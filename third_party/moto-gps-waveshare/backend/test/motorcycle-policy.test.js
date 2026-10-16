@@ -37,6 +37,16 @@ test("ordinary clients stay at strategy 32; Nanjing settings select documented c
   assert.equal(url().searchParams.get("strategy"), "32");
 });
 
+test("legacy Web routing cannot claim elevated-road avoidance without typed road data", () => {
+  const r = request(); r.motorcycle_options.avoid_elevated_roads = true;
+  assert.doesNotThrow(() => validateMotorcycleOptions(r.motorcycle_options));
+  assert.throws(() => buildAmapDrivingUrl(r, {key: "test"}), {code: "UNSUPPORTED_ROUTING_OPTION"});
+  r.motorcycle_options.avoid_elevated_roads = false;
+  assert.equal(buildAmapDrivingUrl(r, {key: "test"}).searchParams.get("strategy"), "40");
+  r.motorcycle_options.avoid_elevated_roads = "true";
+  assert.throws(() => validateMotorcycleOptions(r.motorcycle_options), {code: "INVALID_REQUEST"});
+});
+
 test("manual vertices and ordered waypoints cross WGS84 to GCJ-02 exactly once without changing the request", () => {
   const r = request(); r.motorcycle_options.avoid_areas = [area()];
   r.motorcycle_options.waypoints = [point(118.71, 31.92), point(118.72, 31.93)];

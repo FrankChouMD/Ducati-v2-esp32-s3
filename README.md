@@ -17,13 +17,14 @@
 - 已接入确认的杜卡迪开机动画：红白盾标、**PANIGALE V2S 逐字渐入**，总时长 2.4 秒。
 - 已在导航页和速度页显示当前左右倾角与同步倾斜的 E 版车尾图，接入 QMI8658 原型估算、手机速度补偿与静止零点校准。
 - 已按杜卡迪仪表参考统一黑 / 白 / 红配色，使用窄体标签和大号斜体读数，见 [仪表样式](docs/INSTRUMENT_STYLE.md)。
-- 已按确认效果图完成导航页四角布局：左上方向、右上限速、左下速度、右下倾角，摩托车后轮接地点居中并与地图投影原点对齐。
-- iPhone 页面已改为与车机一致的黑 / 白 / 红主题，包括出发、路线选择、导航中和配套设置页，见 [手机 UI 与效果图](docs/IOS_UI.md)。当前效果图为布局预览；2026-10-16 已通过 Xcode Release 构建、未签名 IPA 校验及 20 项导航核心测试，签名安装和真机验收尚未完成。
+- 导航页保留四角仪表：左上方向、右上限速、左下速度、右下倾角及车尾图；屏幕中心另用俯视摩托车表示当前位置，与地图投影原点对齐。
+- iPhone 页面已改为与车机一致的黑 / 白 / 红主题，包括出发、路线选择、导航中和配套设置页，见 [手机 UI 与效果图](docs/IOS_UI.md)。当前效果图为布局预览；2026-10-16 已通过 Xcode Release 构建及 79 项 App 单测，0.4.6 (13) 已签名安装于 iPhone，实际在线道路导航待真机验收，见 [SDK 接入](docs/IOS_AMAP_SDK.md)。
 - 2.16 固件已通过 ESP-IDF 5.5.5 编译，并于 2026-10-16 在 Mac 上完成烧录与启动日志检查；屏幕、触摸、BLE、QMI8658 初始化通过，实际画面与交互待现场确认。Windows / 480×480 桌面测试此前 12 项通过。
 - Windows 可双击 [run-local.cmd](run-local.cmd)，运行同一份 LVGL 代码的开机动画和导航演示。
-- 已新增 [南京骑行辅助规则](docs/NANJING_MOTORCYCLE_NAVIGATION.md)：按南京郊区登记号牌配置，采用摩途官网 124 点禁外摩图层，自动避让、剔除穿区路线并在偏航重算时复查，支持自定义区域、途经点和已收录桥隧规则。
-- 手机路线地图显示摩途禁外摩区，规则覆盖仍不完整；限行电子眼数据尚未取得并显示为未加载。来源与数据处理见 [边界核验记录](docs/research/NANJING_BOUNDARY_RESEARCH.md)。
-- 算路仍使用高德普通驾车接口；专用摩托车接口、倾角记录与手机回放尚未接入。
+- 已修复真实导航定位暂缺时圆屏误回 `READY TO RIDE`；0.4.6 会继续显示最后一次有效线路，顶部提示“等待定位”，数据恢复后自动更新。相关渲染、状态传递和 BLE 测试通过，配套圆屏固件已烧录。
+- iOS 0.4.4 已按用户要求移除自动限摩区域和桥隧名单检查，路线可直接开始导航；默认高架避让、高速 / 轮渡与自定义区域等路线偏好仍可在“骑行设置”中调整。旧实现保留在 [南京规则历史记录](docs/NANJING_MOTORCYCLE_NAVIGATION.md)。
+- 手机路线页已移除限摩图层、评估卡与确认开关。历史数据来源和处理见 [边界核验记录](docs/research/NANJING_BOUNDARY_RESEARCH.md)。
+- iPhone 0.4.0 已切换[高德 iOS SDK](docs/IOS_AMAP_SDK.md)：直接搜索、算路、地图与导航，不需要自建网站或导航网关。普通驾车候选在本机筛选，专用摩托车算路、倾角记录与手机回放尚未接入。
 
 杜卡迪开机动画已写入本项目固件；倾角记录和手机回放尚未实现。
 编译与桌面测试不代表屏幕、触摸、iPhone 后台连接或 Cardo 组合已通过硬件验证。
@@ -40,7 +41,7 @@
 | 倾角显示 / 安装与校准 | [docs/LEAN_ANGLE.md](docs/LEAN_ANGLE.md) |
 | 上游 1.75C 固件 | [platforms/esp32](third_party/moto-gps-waveshare/platforms/esp32/README.md) |
 | iPhone App | [platforms/ios](third_party/moto-gps-waveshare/platforms/ios/README.md) |
-| 高德路线网关 | [backend](third_party/moto-gps-waveshare/backend/README.md) |
+| 可选底图 / 历史路线网关 | [backend](third_party/moto-gps-waveshare/backend/README.md) |
 | 共享导航逻辑和界面 | [shared](third_party/moto-gps-waveshare/shared) |
 | LVGL 源码 | [third_party/lvgl](third_party/moto-gps-waveshare/third_party/lvgl) |
 | 上游已知问题 | [KNOWN_ISSUES.md](third_party/moto-gps-waveshare/docs/KNOWN_ISSUES.md) |

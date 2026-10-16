@@ -52,10 +52,16 @@ export IDF_TOOLS_PATH="$PWD/build/esp-idf-tools"
 idf.py -C firmware -p /dev/cu.usbmodem1101 flash monitor
 ```
 
+只更新应用且分区表不变时使用 `app-flash`，保留 NVS 与已有蓝牙配对。
+2026-10-16 已烧录无 GPS 时保留路线的更新版并通过写入哈希校验，配套手机版本为 0.4.6 (13)。
+启动日志确认屏幕、触摸、QMI8658 与 BLE 正常，iPhone 已完成加密连接。
+
 实测发现直接从 PSRAM DMA 刷屏在 BLE 启动时出现 TX underflow。
-现使用 10 行内部内存单绘图缓冲，LVGL 的额外 2MiB 内存池仍在 PSRAM。
+现使用 20 行内部内存单绘图缓冲，LVGL 的额外 2MiB 内存池仍在 PSRAM。
 调整后启动日志中屏幕、触摸、BLE 广播和 QMI8658 初始化正常，未再出现传输错误。
 此检查不代表实际画面、触摸操作或手机连接已完成验收。
+
+倾角刷新性能记录与可选板载基准测试见 [DISPLAY_REFRESH.md](../docs/DISPLAY_REFRESH.md)。
 
 ## 桌面检查
 
@@ -87,6 +93,10 @@ ctest --test-dir build/native-480 -C Release --output-on-failure
   未校准或数据失效显示 `--°`。安装轴向、假设与验证范围见 [LEAN_ANGLE.md](../docs/LEAN_ANGLE.md)。
   尚未保存或同步倾角日志。
 - BLE 继续使用上游数据协议，未启动音频服务。iPhone 与 Cardo 直接连接的方案仍需组合实测。
+- 手机仍有活动目的地时，定位暂缺会保留当前路线最后一次有效的线路，顶部提示“等待定位”，
+  暂时隐藏转向距离与限速，导航页速度显示 `--`；定位恢复后继续更新。
+  尚无可保留线路时才使用完整等待页面，不会误回 `READY TO RIDE`。
+  此行为需要同时更新圆屏固件与手机 App 0.4.6。
 
 板级引脚、来源、修改文件和接板验收项目见
 [BOARD_2_16_ADAPTATION.md](../docs/BOARD_2_16_ADAPTATION.md)。

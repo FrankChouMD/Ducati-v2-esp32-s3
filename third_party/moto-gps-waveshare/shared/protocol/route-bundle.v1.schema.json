@@ -236,6 +236,10 @@
         "avoid_highways": {
           "type": "boolean"
         },
+        "avoid_elevated_roads": {
+          "type": "boolean",
+          "description": "Absent in legacy assessments; absence must not imply elevated roads were checked."
+        },
         "avoid_tolls": {
           "type": "boolean"
         },
@@ -341,6 +345,11 @@
           "minItems": 1,
           "maxItems": 1,
           "items": { "$ref": "#/$defs/motorcycleRestrictionArea" }
+        },
+        "restriction_conflicts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Known motorcycle restrictions on an iOS fallback route; warnings do not imply permission to pass."
         },
         "camera_data_status": { "const": "unavailable" },
         "applied_options": {

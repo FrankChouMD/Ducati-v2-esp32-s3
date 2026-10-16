@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<!-- Public baseline: this declares location, search and request metadata that
-     a deployed gateway may retain. Before distributing a fork, review these
-     declarations against its actual services, logs and privacy policy. -->
+<!-- App data declarations. Official AMap manifests are bundled separately
+     by tools/setup_amap_ios_sdk.py, including the no-IDFA foundation manifest. -->
 <dict>
     <key>NSPrivacyTracking</key>
     <false/>

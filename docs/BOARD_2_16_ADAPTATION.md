@@ -7,6 +7,7 @@
 倾角数值旁增加按同一读数转动的 E 版摩托车车尾图和直立参考线。
 同日按参考图统一黑 / 白 / 红仪表配色，改用 Barlow Condensed 窄体与斜体读数。
 按确认效果图将导航改为四角仪表与底部居中摩托车，并同步调整地图投影原点。
+2026-10-16 改为屏幕中央独立俯视定位图标，E 版车尾图移入右下倾角面板，减少运动刷新范围。
 本阶段新增独立 `firmware/` 入口，并将共享 UI 的画布尺寸和电源唤醒脚参数化。
 目标是使现有 MOTO GPS 导航程序能在 2.16 板上构建，再进行接板验收。
 
@@ -21,7 +22,7 @@
 | --- | --- | --- |
 | AMOLED | CO5300，480×480，RGB565 | 使用 480 地址范围，移除 1.75C 的 6 像素列偏移 |
 | QSPI 数据 | D0=4、D1=5、D2=6、D3=7 | 使用 2.16 BSP 引脚宏 |
-| QSPI 控制 | CLK=38、CS=12、RESET=39 | 40MHz、单事务队列、PSRAM 双缓冲 |
+| QSPI 控制 | CLK=38、CS=12、RESET=39 | 40MHz、单事务队列、20 行内部内存单缓冲 |
 | 触摸 | CST9220，RESET=40、INT=11 | 使用官方 BSP 的 CST9217 兼容驱动；swap_xy=1、mirror_y=1 |
 | 共享 I2C | SDA=15、SCL=14 | BSP 建立总线，触摸 / PMIC / IMU 复用 |
 | IMU | QMI8658，地址 0x6B | 同一采样任务用于航向辅助和倾角估算，未实现倾角日志 |
@@ -40,7 +41,9 @@ PWR Key1 将 PWRON 拉低，BSS138 电路将信号反相后送入 GPIO16 的 SYS
 并提供 ESP-IDF 入口、组件清单 / 锁文件、默认配置、分区表和构建说明。
 板级实现保留初始黑屏、首帧后点亮和 2MiB LVGL PSRAM 池。
 2026-10-16 接板时发现 BLE 启动伴随 PSRAM 直接 DMA TX underflow，
-现改为 10 行内部内存单绘图缓冲并关闭 PSRAM 直接 DMA；复测启动未再出现传输错误。
+先改为 10 行内部内存单绘图缓冲并关闭 PSRAM 直接 DMA；复测启动未再出现传输错误。
+倾角刷新优化版将内部缓冲增至 20 行，保留单缓冲和关闭 PSRAM 直接 DMA，
+板载测量及命令见 [DISPLAY_REFRESH.md](DISPLAY_REFRESH.md)。
 直接判断 `esp_lv_adapter_lock(...) == ESP_OK`；BSP 2.0.1 的 bool 锁包装直接返回
 `esp_err_t`，会将成功值 0 转成 false。
 
@@ -51,13 +54,14 @@ PWR Key1 将 PWRON 拉低，BSS138 电路将信号反相后送入 GPIO16 的 SYS
 | `shared/nav_ui/include/moto_nav_ui.h` | 可覆盖画布尺寸与 `MOTO_UI_SQUARE_SCREEN`；共享地图原点 / 高度；倾角状态及校准回调 |
 | `shared/nav_ui/src/moto_nav_ui.cpp` | 方屏四角导航 HUD、居中摩托车与长按校准；水平进度条、分页位置、独立速度页；修复字体链接和重复创建时的旧定时器残留 |
 | `shared/nav_ui/assets/ducati_rear_e.*` | 新增选定的 E 版车尾图，86×128 ARGB8888；围绕后轮接地点随倾角转动 |
+| `shared/nav_ui/assets/ducati_top.*` | 独立的 48×112 俯视定位图标，中心 `(240,240)`；不随倾角旋转或失效 |
 | `shared/nav_ui/assets/fonts/` | 新增 OFL 字体子集，标签 18 / 22px、斜体读数 32 / 56 / 88px |
 | `shared/nav_ui/CMakeLists.txt`、`platforms/esp32/main/CMakeLists.txt` | 将共享 E 版图标和仪表字体加入桌面 / Web 和原 ESP32 构建入口 |
 | `platforms/esp32/main/board_port.h` | 新增可覆盖的电源唤醒脚宏，默认保留 GPIO3 |
 | `platforms/esp32/main/app_main.cpp` | GPIO16 唤醒、2.16 杜卡迪动画；传递完整六轴采样 |
 | `platforms/esp32/main/motion_heading_sensor.h/.cpp` | 复用采样任务向航向 / 倾角提供六轴数据，检测配置错误和断流 |
 | `platforms/esp32/main/phone_nav_bridge.h/.cpp` | 倾角估算、速度参考、独立刷新、校准与演示隔离 |
-| `shared/nav_core/nav_core.hpp`、`shared/nav_presenter/src/moto_nav_presenter.cpp` | 本地倾角状态 / 有效性映射，地图原点与后轮接地点一致，不改 BLE 线格式 |
+| `shared/nav_core/nav_core.hpp`、`shared/nav_presenter/src/moto_nav_presenter.cpp` | 本地倾角状态 / 有效性映射；纯倾角更新跳过地图投影；地图原点与俯视图标中心一致，不改 BLE 线格式 |
 | `tests/native/` | 扩展桩、映射、真实 UI 渲染与桥接检查以覆盖倾角和校准 |
 
 新增 `motion_imu_sample.hpp` 与 `motion_lean_fusion.hpp` 位于共享的 ESP32 代码目录，

@@ -7,6 +7,7 @@ final class MotorcycleRoutingTests: XCTestCase {
         let options = MotorcycleRouteOptions()
         XCTAssertEqual(options.registration, .nanjingSuburban)
         XCTAssertTrue(options.avoidHighways)
+        XCTAssertTrue(options.avoidElevatedRoads)
         let request = RouteRequest(requestID: 8, origin: point(118.7, 31.9), destination: point(118.9, 31.9),
                                    isReroute: true, previousRouteID: "old", motorcycleOptions: options)
         let data = try JSONEncoder().encode(request)
@@ -14,6 +15,7 @@ final class MotorcycleRoutingTests: XCTestCase {
         let applied = try XCTUnwrap(json["motorcycle_options"] as? [String: Any])
         XCTAssertEqual(applied["registration"] as? String, "nanjing_suburban")
         XCTAssertEqual(applied["avoid_highways"] as? Bool, true)
+        XCTAssertEqual(applied["avoid_elevated_roads"] as? Bool, true)
         XCTAssertEqual(try JSONDecoder().decode(RouteRequest.self, from: data), request)
         let legacy = RouteRequest(requestID: 9, origin: point(118.7,31.9), destination: point(118.9,31.9))
         let legacyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as? [String: Any])
@@ -43,6 +45,7 @@ final class MotorcycleRoutingTests: XCTestCase {
         XCTAssertEqual(remaining.registration, .nanjingSuburban)
         XCTAssertTrue(remaining.avoidTolls)
         XCTAssertTrue(remaining.avoidHighways)
+        XCTAssertTrue(remaining.avoidElevatedRoads)
         let stale = NavigationFix(coordinate: first, horizontalAccuracyM: 3, timestamp: now.addingTimeInterval(-20))
         XCTAssertEqual(options.advancingWaypoints(with: stale, now: now), options)
         let poor = NavigationFix(coordinate: first, horizontalAccuracyM: 100, timestamp: now)
@@ -72,8 +75,20 @@ final class MotorcycleRoutingTests: XCTestCase {
         json["restriction_areas"] = [area]; json["camera_data_status"] = "unavailable"
         let checked = try decode(json)
         XCTAssertTrue(checked.matches(options))
+        XCTAssertFalse(checked.hasRestrictionConflicts)
+        var fallbackJSON = json
+        fallbackJSON["restriction_conflicts"] = ["南京禁外摩区域"]
+        fallbackJSON["warnings"] = ["路线涉及限摩：南京禁外摩区域"]
+        let fallback = try decode(fallbackJSON)
+        XCTAssertTrue(fallback.hasRestrictionConflicts)
+        XCTAssertTrue(fallback.matches(options))
         XCTAssertEqual(checked.restrictionAreas?.first?.polygon.count,3)
         XCTAssertEqual(checked.cameraDataStatus,"unavailable")
+        var legacyOptions = try XCTUnwrap(json["applied_options"] as? [String: Any])
+        legacyOptions.removeValue(forKey: "avoid_elevated_roads")
+        var legacy = json; legacy["applied_options"] = legacyOptions
+        XCTAssertFalse(try decode(legacy).appliedOptions.avoidElevatedRoads)
+        XCTAssertFalse(try decode(legacy).matches(options))
         area["applies_to_registration"] = false; json["restriction_areas"] = [area]
         XCTAssertFalse(try decode(json).matches(options))
         area["applies_to_registration"] = true; area["coordinate_system"] = "WGS84"

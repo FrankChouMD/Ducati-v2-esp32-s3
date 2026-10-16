@@ -8,11 +8,13 @@ output_dir="$(cd "$output_dir" && pwd)"
 derived_dir="$output_dir/DerivedData"
 staging_dir="$(mktemp -d)"
 trap 'rm -rf "$staging_dir"' EXIT
+python3 "$repo_root/../../tools/setup_amap_ios_sdk.py"
+python3 "$repo_root/../../tools/generate_ios_sdk_policy.py" --check
 xcodegen generate --spec "$repo_root/platforms/ios/project.yml"
 xcodebuild -project "$repo_root/platforms/ios/MotoGPS.xcodeproj" \
   -scheme MotoGPS -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath "$derived_dir" \
-  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= build
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= AMAP_IOS_KEY= build
 app_path="$derived_dir/Build/Products/Release-iphoneos/MOTO GPS.app"
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Info.plist")"
 build_number="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_path/Info.plist")"

@@ -1,130 +1,52 @@
-import MotoNavigationCore
 import SwiftUI
 
-// Ducati V2 personal UI adaptation, 2026-10-16: shared dark form styling.
 struct GatewaySettingsView: View {
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
-    @State private var address = ""
+    @State private var key = ""
+    @State private var consent = false
     @State private var message: String?
-    @State private var isChecking = false
-    @State private var checkTask: Task<Void, Never>?
-
+    @State private var showsMapGateway = false
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    TextField("https://你的网关地址/", text: $address, axis: .vertical)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .accessibilityIdentifier("gateway-address-field")
-                        .disabled(model.isUpdatingGateway)
-                } header: {
-                    Text("网关地址")
-                } footer: {
-                    Text("填写完整的 HTTPS 根地址。例如 https://nav.example.com/moto-gps/api/，不要填高德 Key。")
+                Section("高德 iOS SDK") {
+                    SecureField("iOS 平台 Key", text: $key)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .accessibilityIdentifier("amap-ios-key")
+                    Text("Bundle ID：\(Bundle.main.bundleIdentifier ?? "")")
+                        .font(.footnote).textSelection(.enabled)
+                    Text("请在高德控制台把这个 Bundle ID 绑定到 iOS 平台 Key。Web 服务 Key 不能用于此处。Key 保存在本机钥匙串。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section {
-                    Button {
-                        checkConnection()
-                    } label: {
-                        HStack {
-                            Text("测试连接")
-                            if isChecking { Spacer(); ProgressView() }
-                        }
-                    }
-                    .disabled(isChecking || model.isUpdatingGateway || address.isEmpty)
-                    .accessibilityIdentifier("gateway-check-button")
-                    if let message {
-                        Text(message).foregroundStyle(.secondary)
-                            .accessibilityIdentifier("gateway-status-message")
-                    }
-                } footer: {
-                    Text("连接测试只检查网关状态；真实搜索、导航和地图还需要相应服务可用。")
+                Section("隐私与授权") {
+                    Text("启用后，高德软件有限公司提供的地图、搜索与导航 SDK 将直接处理搜索词、起终点、途经点、导航位置，以及其隐私政策列明的设备与网络信息。绕行规划会向高德提交限摩图层和你设置的避让区域坐标；车辆登记类型在本机用于选择规则。")
+                    Link("阅读高德 SDK 隐私政策", destination: URL(string: "https://lbs.amap.com/pages/privacy/")!)
+                    Link("阅读高德开放平台服务协议", destination: URL(string: "https://lbs.amap.com/home/terms/")!)
+                    Toggle("已阅读并同意使用高德 SDK", isOn: $consent)
+                        .accessibilityIdentifier("amap-sdk-consent")
+                    Text("保存后才初始化 SDK。当前使用驾车算路和本地南京规则筛选，专用摩托车算路需另行开通。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section {
-                    Text("保存后立即生效，无需重新安装。更换地址会清空当前搜索并暂停地图下载，已下载的地图仍会保留。")
-                    Text("地点、路线和定位请求将发送到这个地址，请使用你信任的网关。")
+                Section("车机周边底图") {
+                    Text("搜索、算路和导航不需要自建网关。圆屏显示路线与转向；新增道路、建筑底图及离线包下载仍需可选底图网关，已有缓存继续可用。")
+                    Button("配置可选底图网关") { showsMapGateway = true }
                 }
-                if model.isNavigationActive {
-                    Section { Text("请先结束导航，再更换网关地址。") }
-                }
+                if let message { Section { Text(message).foregroundStyle(.red) } }
             }
-            .scrollContentBackground(.hidden)
-            .ducatiScreen()
-            .navigationTitle("网关设置")
-            .navigationBarTitleDisplayMode(.inline)
+            .scrollContentBackground(.hidden).ducatiScreen()
+            .navigationTitle("高德 SDK 设置").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }.disabled(model.isUpdatingGateway)
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        checkTask?.cancel()
-                        isChecking = false
-                        Task {
-                            do {
-                                try await model.saveGatewayAddress(address)
-                                dismiss()
-                            } catch { message = error.localizedDescription }
-                        }
-                    }
-                    .disabled(model.isNavigationActive || model.isUpdatingGateway || address.isEmpty)
-                    .accessibilityIdentifier("gateway-save-button")
+                        do { try model.saveSDKConfiguration(key: key, consent: consent); dismiss() }
+                        catch { message = error.localizedDescription }
+                    }.disabled(model.isNavigationActive || !consent || key.isEmpty)
                 }
             }
-            .interactiveDismissDisabled(model.isUpdatingGateway)
-            .onAppear { address = model.isGatewayConfigured ? model.mapGatewayBaseURL.absoluteString : "" }
-            .onChange(of: address) { _, _ in
-                checkTask?.cancel()
-                isChecking = false
-                message = nil
-            }
-            .onDisappear { checkTask?.cancel() }
+            .onAppear { key = AMapSDKSettings.key; consent = AMapSDKSettings.consent }
+            .sheet(isPresented: $showsMapGateway) { MapGatewaySettingsView(model: model) }
         }.ducatiAppTheme()
-    }
-
-    private func checkConnection() {
-        checkTask?.cancel()
-        message = nil
-        let url: URL
-        do { url = try GatewayConfiguration.normalizedURL(address) }
-        catch { message = error.localizedDescription; return }
-        isChecking = true
-        checkTask = Task { @MainActor in
-            defer { if !Task.isCancelled { isChecking = false } }
-            do {
-                var request = URLRequest(url: url.appendingPathComponent("healthz"))
-                request.timeoutInterval = 10
-                request.cachePolicy = .reloadIgnoringLocalCacheData
-                let (bytes, response) = try await URLSession.shared.bytes(for: request)
-                defer { bytes.task.cancel() }
-                guard let response = response as? HTTPURLResponse, response.statusCode == 200,
-                      response.expectedContentLength <= 65_536 else { throw URLError(.badServerResponse) }
-                var data = Data()
-                for try await byte in bytes {
-                    guard data.count < 65_536 else { throw URLError(.dataLengthExceedsMaximum) }
-                    data.append(byte)
-                }
-                struct Health: Decodable {
-                    let status: String
-                    let ready_for_live_navigation: Bool
-                    let capabilities: Capabilities?
-                    struct Capabilities: Decodable { let motorcycle_rules: Bool? }
-                }
-                let health = try JSONDecoder().decode(Health.self, from: data)
-                guard health.status == "ok" else { throw URLError(.badServerResponse) }
-                try Task.checkCancellation()
-                message = health.ready_for_live_navigation
-                    ? (health.capabilities?.motorcycle_rules == true
-                        ? "网关已连接，已启用导航与南京骑行规则检查。"
-                        : "网关已连接，但不支持南京骑行规则，请先更新网关。")
-                    : "网关已连接，但尚未启用实时导航。请检查服务端配置。"
-            } catch {
-                guard !Task.isCancelled else { return }
-                message = "连接失败，请检查地址、HTTPS 证书和网关是否已启动。"
-            }
-        }
     }
 }

@@ -28,7 +28,7 @@
 namespace {
 constexpr char kTag[] = "ducati_board_2_16";
 constexpr gpio_num_t kPowerButtonGpio = GPIO_NUM_16;
-constexpr std::uint16_t kDrawBufferHeight = 10;
+constexpr std::uint16_t kDrawBufferHeight = 20;
 constexpr int kTransactionQueueDepth = 1;
 constexpr std::size_t kLvglPoolBytes = 2U * 1024U * 1024U;
 constexpr std::uint16_t kAxp2101Address = 0x34;

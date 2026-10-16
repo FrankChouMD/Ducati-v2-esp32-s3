@@ -304,6 +304,12 @@ void project_building_context(const NavSnapshot& snapshot,
 
 NavPresenter::NavPresenter() { update(NavSnapshot{}); }
 
+void NavPresenter::update_lean(const NavSnapshot& snapshot) {
+  ui_state_.lean_valid = snapshot.lean_valid && std::isfinite(snapshot.lean_deg) &&
+                         std::abs(snapshot.lean_deg) <= 90.0F;
+  ui_state_.lean_deg = ui_state_.lean_valid ? snapshot.lean_deg : 0.0F;
+}
+
 void NavPresenter::update(const NavSnapshot& snapshot) {
   road_name_.clear();
   next_road_name_.clear();
@@ -340,6 +346,8 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
           : 0;
   ui_state_.online = snapshot.network == NetworkState::Online ? 1 : 0;
   ui_state_.has_destination = snapshot.has_destination ? 1 : 0;
+  ui_state_.has_usable_fix =
+      snapshot.has_usable_fix && !snapshot.gnss_stale ? 1 : 0;
   ui_state_.route_request_in_flight =
       snapshot.route_request_in_flight ? 1 : 0;
   ui_state_.route_identity = route_identity(snapshot.route_id);
@@ -349,9 +357,7 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
       static_cast<double>(snapshot.speed_mps) * 3.6);
   ui_state_.speed_limit_kph = snapshot.speed_limit_kph;
   ui_state_.heading_deg = normalized_heading(snapshot.heading_deg);
-  ui_state_.lean_valid = snapshot.lean_valid && std::isfinite(snapshot.lean_deg) &&
-                         std::abs(snapshot.lean_deg) <= 90.0F;
-  ui_state_.lean_deg = ui_state_.lean_valid ? snapshot.lean_deg : 0.0F;
+  update_lean(snapshot);
   // Route, roads and buildings share one rider-centred transform. Besides
   // guaranteeing exact layer alignment, this avoids repeating trigonometry
   // hundreds of times on every high-rate IMU frame.

@@ -72,7 +72,6 @@ class PhoneNavBridge {
   void apply_geometry_locked(moto::nav::NavSnapshot& target);
   moto::nav::NavSnapshot& phone_snapshot_locked() noexcept;
   void present_navigation();
-  void present_motion();
   void request_render(std::uint32_t flags) noexcept;
   void render_pending();
 #ifdef ESP_PLATFORM
@@ -117,6 +116,7 @@ class PhoneNavBridge {
     RenderNavigation = 1U << 0U,
     RenderMotion = 1U << 1U,
     RenderMedia = 1U << 2U,
+    RenderLean = 1U << 3U,
   };
   std::atomic<std::uint32_t> pending_render_flags_{0};
 #ifdef ESP_PLATFORM
@@ -125,6 +125,7 @@ class PhoneNavBridge {
   MotionHeadingFusion heading_fusion_;
   MotionLeanFusion lean_fusion_;
   bool lean_dirty_ = false;
+  bool heading_dirty_ = false;
   std::uint64_t last_motion_present_ms_ = 0;
   std::uint64_t last_imu_sample_ms_ = 0;
   moto::nav::NavSnapshot snapshot_before_demo_{};

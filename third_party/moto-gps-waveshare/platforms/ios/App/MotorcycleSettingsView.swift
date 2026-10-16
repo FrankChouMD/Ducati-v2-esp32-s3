@@ -18,8 +18,15 @@ enum MotorcyclePreferenceStore {
     static let key = "DucatiV2.MotorcycleOptions.v1"
     static func load(defaults: UserDefaults = .standard) -> MotorcycleRouteOptions {
         guard let data = defaults.data(forKey: key),
-              let options = try? JSONDecoder().decode(MotorcycleRouteOptions.self, from: data), options.isValid
-        else { return MotorcycleRouteOptions() } // User selected Nanjing suburban registration.
+              var options = try? JSONDecoder().decode(MotorcycleRouteOptions.self, from: data), options.isValid
+        else { return MotorcycleRouteOptions() }
+        if let stored = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           stored["avoid_elevated_roads"] == nil {
+            options.avoidElevatedRoads = true
+            // Preserve all old preferences; persist the migration so a later
+            // explicit switch-off remains off on subsequent launches.
+            if let migrated = try? JSONEncoder().encode(options) { defaults.set(migrated, forKey: key) }
+        }
         return options
     }
     static func save(_ options: MotorcycleRouteOptions, defaults: UserDefaults = .standard) throws {
@@ -45,21 +52,18 @@ struct MotorcycleSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    DucatiBrand(caption: "NANJING RIDING")
-                    Picker("车辆登记类型", selection: $draft.registration) {
-                        ForEach(MotorcycleRegistration.allCases, id: \.self) { registration in
-                            Text(registration.title).tag(registration)
-                        }
-                    }.accessibilityIdentifier("riding-registration")
-                } footer: {
-                    Text("当前默认：南京郊区登记号牌。江宁、浦口、六合等登记类别不能仅凭苏A判断主城区通行资格。")
+                    DucatiBrand(caption: "RIDING PREFERENCES")
                 }
                 Section {
                     Toggle("避开高速", isOn: $draft.avoidHighways)
                         .accessibilityIdentifier("riding-avoid-highways")
+                    Toggle("避开高架", isOn: $draft.avoidElevatedRoads)
+                        .accessibilityIdentifier("riding-avoid-elevated-roads")
                     Toggle("少收费", isOn: $draft.avoidTolls)
                     Toggle("避开轮渡", isOn: $draft.avoidFerries)
-                } header: { Text("路线偏好") } footer: { Text("使用普通驾车接口算路，偏好不能代替摩托车禁限行规则。") }
+                } header: { Text("路线偏好") } footer: {
+                    Text("避开高架默认开启，按高德道路类型检查完整路线及偏航新路线。未找到符合设置的路线时会提示；仍需核对现场通行标志。")
+                }
                 Section {
                     ForEach(draft.avoidAreas) { area in
                         Button { editingArea = area } label: {
@@ -72,7 +76,7 @@ struct MotorcycleSettingsView: View {
                     .disabled(draft.avoidAreas.count >= 4)
                     .accessibilityIdentifier("riding-add-avoid-area")
                 } header: { Text("自定义避让区域 · \(draft.avoidAreas.count)/4") } footer: {
-                    Text("自定义区域会用于算路，并检查完整路线是否穿过边界。它们是你设置的避让范围，不是官方禁行边界。左滑可删除。")
+                    Text("会剔除穿过这些区域的候选路线；若没有可用路线，请调整区域或添加途经点。左滑可删除。")
                 }
                 Section {
                     Button { showsWaypoints = true } label: {
@@ -82,24 +86,10 @@ struct MotorcycleSettingsView: View {
                         Button("清空途经点", role: .destructive) { draft.waypoints = [] }
                     }
                 } header: { Text("途经点") } footer: { Text("按点击顺序经过所选位置。骑行时只会从后续重算中移除已到达的途经点。") }
-                Section {
-                    Text(draft.registration == .nanjingUrban
-                         ? "主城区登记号牌不套用禁外摩区域避让，已收录桥隧及自定义避让区仍会检查。"
-                         : "自动避让摩途官网南京禁外摩区域，并复查完整路线是否穿区。路线地图以橙色显示该区域。")
-                    Text("同时检查已收录桥隧与自定义避让区。城市高架、分时和临时管制未完整收录。")
-                    Label("限行电子眼 · 数据未加载", systemImage: "video.slash")
-                    Link("摩途官网禁行图层", destination: URL(string: "https://www.motumap.com/")!)
-                    Link("南京市政府禁外摩通告与附图", destination: URL(string: "https://www.nanjing.gov.cn/xxgkn/szgfxwj/202311/t20231115_4098444.html")!)
-                        .foregroundStyle(DucatiTheme.warning)
-                    Link("禁外摩范围与适用车辆", destination: URL(string: "https://www.nanjing.gov.cn/zdgk/200805/t20080528_1054634.html")!)
-                    Link("南京市交通运输局过江通道答复", destination: URL(string: "https://www.nanjing.gov.cn/xxgkn/jytabljggk/2025njytabl/shirddbjy/202512/t20251205_5706046.html")!)
-                    Link("新生圩长江大桥通行政策", destination: URL(string: "https://jtj.nanjing.gov.cn/njsjtysj/202511/t20251121_5695260.html")!)
-                    Link("建宁路长江隧道通行政策", destination: URL(string: "https://www.nanjing.gov.cn/hdjl/hygq/202608/t20260819_5896120.html")!)
-                } header: { Text("南京规则覆盖范围") } footer: { Text("资料核对日期：2026-10-16。请同时核对最新公告与现场标志。") }
                 if let errorMessage { Section { Text(errorMessage).foregroundStyle(DucatiTheme.warning) } }
             }
             .disabled(model.isNavigationActive)
-            .ducatiList().navigationTitle("南京骑行").navigationBarTitleDisplayMode(.inline)
+            .ducatiList().navigationTitle("骑行设置").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -123,44 +113,6 @@ struct MotorcycleSettingsView: View {
                 }
             }
         }.ducatiAppTheme()
-    }
-}
-
-struct MotorcycleAssessmentCard: View {
-    let assessment: MotorcycleRouteAssessment
-    var review: Binding<Bool>? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("南京骑行 · 规则覆盖不完整", systemImage: "exclamationmark.triangle")
-                .font(.subheadline.weight(.semibold)).foregroundStyle(DucatiTheme.warning)
-            Text(assessment.warnings.first ?? "请核对摩托车通行规定。")
-                .font(.caption).fixedSize(horizontal: false, vertical: true)
-            if let area = assessment.restrictionAreas?.first, area.isValid {
-                Label(area.appliesToRegistration ? "橙色区域 · 摩途禁外摩区，已用于避让" : "禁外摩区仅供参考，当前登记类型未套用",
-                      systemImage: "map")
-                    .font(.caption).foregroundStyle(DucatiTheme.warning)
-            }
-            Label("限行电子眼 · 数据未加载", systemImage: "video.slash")
-                .font(.caption).foregroundStyle(DucatiTheme.secondary)
-            DisclosureGroup("覆盖范围与规则来源") {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(Array(assessment.warnings.dropFirst().enumerated()), id: \.offset) { _, warning in
-                        Text(warning).font(.caption).foregroundStyle(DucatiTheme.secondary)
-                    }
-                    ForEach(Array(assessment.sources.enumerated()), id: \.offset) { _, source in
-                        if let url = URL(string: source.url), url.scheme == "https" {
-                            Link(source.title, destination: url).font(.caption).frame(minHeight: 44, alignment: .leading)
-                        }
-                    }
-                    Text("资料核对：\(assessment.verifiedOn)").font(.caption2).foregroundStyle(DucatiTheme.secondary)
-                }.padding(.top, 12)
-            }.font(.caption)
-            if let review {
-                Toggle("我已核对本次路线与禁行范围", isOn: review)
-                    .font(.subheadline).accessibilityIdentifier("riding-route-reviewed")
-            }
-        }.ducatiCard().accessibilityIdentifier("riding-rule-assessment")
     }
 }
 

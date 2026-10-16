@@ -201,57 +201,16 @@ final class DemoNavigationLocationSource: NavigationLocationSource {
 /// phone has no network, it falls back to the checked-in OSM/ODbL route so the
 /// hardware demo remains usable without persisting an AMap response in source.
 final class DemoNavigationRouteProvider: NavigationRouteProviding, @unchecked Sendable {
-    private let liveProvider: AmapGatewayRouteProvider
     private let session: DemoNavigationSession
 
-    init(liveProvider: AmapGatewayRouteProvider, session: DemoNavigationSession) {
-        self.liveProvider = liveProvider
-        self.session = session
-    }
+    init(session: DemoNavigationSession) { self.session = session }
 
     func route(for request: RouteRequest) async throws -> RouteEnvelope {
-        let shouldMoveAlongResult = request.previousRouteID == nil || request.isReroute
-        do {
-            let envelope = try await liveProvider.route(for: request)
-            let route = Self.withStableDemoIdentity(
-                envelope.route,
-                rerouted: request.isReroute,
-                provider: "amap-gateway-demo-live"
-            )
-            if shouldMoveAlongResult {
-                await session.install(route: route)
-            }
-            return RouteEnvelope(requestID: request.requestID, route: route)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            let route = Self.fallbackRoute(
-                rerouted: request.isReroute,
-                generatedAtMs: UInt64(Date().timeIntervalSince1970 * 1_000)
-            )
-            if shouldMoveAlongResult {
-                await session.install(route: route)
-            }
-            return RouteEnvelope(requestID: request.requestID, route: route)
-        }
-    }
-
-    private static func withStableDemoIdentity(
-        _ route: RoutePlan,
-        rerouted: Bool,
-        provider: String
-    ) -> RoutePlan {
-        RoutePlan(
-            routeID: rerouted ? JinanDemoFixture.reroutedRouteID : JinanDemoFixture.routeID,
-            provider: provider,
-            coordinateSystem: route.coordinateSystem,
-            generatedAtMs: route.generatedAtMs,
-            totalDistanceM: route.totalDistanceM,
-            totalDurationS: route.totalDurationS,
-            polyline: route.polyline,
-            maneuvers: route.maneuvers,
-            traffic: route.traffic
-        )
+        try Task.checkCancellation()
+        let route = Self.fallbackRoute(rerouted: request.isReroute,
+            generatedAtMs: UInt64(Date().timeIntervalSince1970 * 1_000))
+        if request.previousRouteID == nil || request.isReroute { await session.install(route: route) }
+        return RouteEnvelope(requestID: request.requestID, route: route)
     }
 
     private static func fallbackRoute(rerouted: Bool, generatedAtMs: UInt64) -> RoutePlan {
@@ -334,7 +293,7 @@ enum ChinaCoordinateTransform {
         return candidate
     }
 
-    private static func wgs84ToGCJ02(_ point: WGS84Point) -> GCJ02Point {
+    static func wgs84ToGCJ02(_ point: WGS84Point) -> GCJ02Point {
         if point.longitudeDeg < 72.004 || point.longitudeDeg > 137.8347 ||
             point.latitudeDeg < 0.8293 || point.latitudeDeg > 55.8271
         {
